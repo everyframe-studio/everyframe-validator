@@ -43,10 +43,10 @@ def test_explicit_submit_uses_external_hotkey_and_journals(profile,payload,signi
     assert result["state"]=="pending_reveal"
     assert result["submittedTransaction"]
     assert chain.execute.await_count==1
-    assert chain.execute.call_args.kwargs["retries"]==0
+    assert chain.execute.call_args.kwargs == {"wait_for_inclusion": True, "wait_for_finalization": True}
     assert journal_rows(root)[0]["record"]["validatorHotkey"]==hot(1)
     monkeypatch.setattr(runner,"reconcile",AsyncMock(return_value=[]))
-    assert asyncio.run(runner.tick(root,submit=True))["state"]=="blocked"
+    assert asyncio.run(runner.tick(root,submit=True))["state"]=="pending_reveal"
     assert chain.execute.await_count==1
 
 

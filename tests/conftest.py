@@ -1,4 +1,5 @@
 import base64
+import hashlib
 from fractions import Fraction
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -84,10 +85,14 @@ def chain(monkeypatch):
     class Client:
         def __init__(self, **kwargs):
             self._substrate = SimpleNamespace(block_hash=block_hash, raw=SimpleNamespace(
-                get_chain_finalised_head=AsyncMock(return_value="finalized"), get_block_number=AsyncMock(return_value=4000)))
+                get_chain_finalised_head=AsyncMock(return_value="finalized"), get_block_number=AsyncMock(return_value=4000)),
+                account_next_index=AsyncMock(return_value=1),
+                sign_extrinsic=AsyncMock(return_value=(b"fixture transaction", "0x" + hashlib.blake2b(b"fixture transaction", digest_size=32).hexdigest())),
+                submit_signed=execute, find_extrinsic=AsyncMock(return_value=None))
             self.subnets = SimpleNamespace(metagraph=AsyncMock(return_value=graph), subnet_hyperparameters=AsyncMock(return_value=params))
             self.query = query
             self.execute = execute
+            self.plan = preview
 
         async def __aenter__(self):
             return self
@@ -97,7 +102,8 @@ def chain(monkeypatch):
 
     result = {"success": True, "block_hash": "0x"+"c"*64, "extrinsic_id": "4000-0"}
     execute = AsyncMock(return_value=SimpleNamespace(**result, to_dict=lambda: result))
-    wallet = SimpleNamespace(hotkeypub=SimpleNamespace(ss58_address=hot(1)), get_hotkey=lambda _: "FAKE_TEST_SIGNER")
+    preview = AsyncMock(return_value=SimpleNamespace(ok=True, call="FAKE_POLICY_CHECKED_CALL"))
+    wallet = SimpleNamespace(hotkeypub=SimpleNamespace(ss58_address=hot(1)), get_hotkey=lambda _: SimpleNamespace(ss58_address=hot(1)))
     monkeypatch.setattr(bt, "Client", Client)
     monkeypatch.setattr(bt, "Wallet", lambda *args, **kwargs: wallet)
-    return SimpleNamespace(execute=execute, params=params, neurons=neurons, graph=graph, wallet=wallet, network=network)
+    return SimpleNamespace(execute=execute, preview=preview, params=params, neurons=neurons, graph=graph, wallet=wallet, network=network)

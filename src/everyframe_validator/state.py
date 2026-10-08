@@ -112,5 +112,60 @@ def load_config(root):
 
 def journal_rows(root):
     with sqlite3.connect((root / "journal.db").as_uri() + "?mode=ro", uri=True) as db:
-        return [{"id": row[0], "state": row[1], "record": json.loads(row[2])}
-                for row in db.execute("SELECT id,state,record FROM weight_runs")]
+        return [{"id": row[0], "state": row[1], "record": json.loads(row[2]),
+                 "result": json.loads(row[3]) if row[3] else {}}
+                for row in db.execute("SELECT id,state,record,result FROM weight_runs")]
+
+
+def status_snapshot(path):
+    """Read committed SQLite state without taking the signing-operation lock.
+
+    This is diagnostic only. Signing always revalidates under the exclusive lock.
+    """
+    import time
+    root = private_directory(path)
+    c = load_config(root)
+    rows = journal_rows(root)
+    busy = False
+    try:
+        fd = os.open(root / "lock", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        pass
+    else:
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ValueError("invalid_lock")
+            try:
+                fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                busy = True
+        finally:
+            os.close(fd)
+    runs = []
+    for row in rows:
+        item = {"id": row["id"], "state": row["state"], "epoch": row["record"].get("epoch")}
+        result = row["result"]
+        if result.get("extrinsic_id"):
+            item["extrinsicId"] = result["extrinsic_id"]
+        broadcast = result.get("broadcast", {})
+        if broadcast.get("hash"):
+            item["transactionHash"] = broadcast["hash"]
+        if row["state"] in ("unknown", "submitting"):
+            item["next"] = ("Run reconcile to search for the exact finalized transaction."
+                            if broadcast.get("hash") else
+                            "No durable transaction hash is available. Preserve the journal for manual chain investigation; do not resubmit.")
+        runs.append(item)
+    snapshot = {"network": c["network"], "netuid": c["netuid"], "validatorHotkey": c["validatorHotkey"],
+                "feed": c["feed"], "runs": runs, "diagnosticOnly": True, "operationInProgress": busy}
+    try:
+        last = read_private(root / "status.json")
+    except FileNotFoundError:
+        last = None
+    snapshot["lastRun"] = last
+    snapshot["lastRunAgeSeconds"] = (max(0, int(time.time() - last["atMs"] / 1000))
+                                     if last and type(last.get("atMs")) is int else None)
+    snapshot["state"] = ("blocked" if any(r["state"] in ("unknown", "submitting") for r in rows)
+                         else "pending_reveal" if any(r["state"] == "pending_reveal" for r in rows)
+                         else "awaiting_readback" if any(r["state"] == "finalized" for r in rows)
+                         else "processing" if busy else "idle")
+    return snapshot

@@ -11,6 +11,7 @@ import sys
 
 from .reward_policy import POLICY, cap_burn, digest, load_epoch, pool_microusd
 from .chain_scope import scope, add_network, bind_database, check_database, check_record, check_authorization, read_network
+from .submission import prepare
 
 def snapshot(database, end):
     """Legacy count-based diagnostic fixture only; NOT the production reward path."""
@@ -295,20 +296,26 @@ async def main(args):
             if authorization:
                 check_authorization(args.mainnet_authorization, domain, args.validator_hotkey, args.version_key)
             intent = bt.SetWeights(netuid=args.netuid, weights=plan['weights'], version_key=args.version_key)
+            # Start recovery at the finalized snapshot, not a reorg-prone head.
+            signed, broadcast = await prepare(client, intent, signer, journal, run_id, record['block'])
+            if authorization:
+                check_authorization(args.mainnet_authorization, domain, args.validator_hotkey, args.version_key)
             broadcast_started = True
-            result = await client.execute(intent, signer, wait_for_inclusion=True,
-                                          wait_for_finalization=True, retries=0)
+            # Exactly the policy-checked bytes whose hash is durable above.
+            # This pinned SDK transport does not re-sign or retry the broadcast.
+            result = await client._substrate.submit_signed(signed, signer, wait_for_inclusion=True,
+                                                           wait_for_finalization=True)
             if not result.success or not result.block_hash or not result.extrinsic_id:
                 raise ValueError('submission not confirmed')
             state = 'pending_reveal' if record['commitReveal'] else 'finalized'
             journal.execute('UPDATE weight_runs SET state=?,result=? WHERE id=?',
-                (state, json.dumps(result.to_dict(), default=str), run_id))
+                (state, json.dumps({**result.to_dict(), 'broadcast': broadcast}, default=str), run_id))
             journal.commit()
             print(json.dumps({'runId': run_id, 'state': state, 'blockHash': result.block_hash,
                               'result': result.to_dict()}))
         except BaseException:
             # A failed pre-sign identity/epoch check is provably not a broadcast.
-            # Anything inside execute remains uncertain and must never auto-retry.
+            # Anything after entering submit_signed remains uncertain; never auto-retry.
             journal.execute('UPDATE weight_runs SET state=? WHERE id=?',
                             ('unknown' if broadcast_started else 'not_submitted', run_id))
             journal.commit()

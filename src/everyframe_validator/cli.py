@@ -10,8 +10,10 @@ import uuid
 from . import __version__
 from .core.chain_scope import scope
 from .feed import PROFILES, public_key, validate_url
-from .state import initialize, locked, load_config, atomic_json, journal_rows
+from .state import initialize, locked, load_config, atomic_json, status_snapshot
 from .runner import run, tick
+from .diagnostics import diagnostic
+from .doctor import doctor
 
 
 def parser():
@@ -31,6 +33,7 @@ def parser():
     commands = {"init": init}
     for name, help_text in (("run", "Validate continuously; never signs without --submit"),
                             ("status", "Inspect local profile and submission states"),
+                            ("doctor", "Check profile, journal, wallet identity, chain and feed without signing"),
                             ("reconcile", "Read chain evidence for submitted weights; never resubmit"),
                             ("authorize", "Grant YOUR validator local, expiring signing consent")):
         commands[name] = sub.add_parser(name, help=help_text)
@@ -39,6 +42,7 @@ def parser():
     commands["run"].add_argument("--submit", action="store_true", help="Sign using your local wallet; also requires authorize")
     commands["run"].add_argument("--once", action="store_true")
     commands["run"].add_argument("--interval", type=int, default=60)
+    commands["doctor"].add_argument("--offline", action="store_true", help="Skip RPC and feed checks")
     commands["authorize"].add_argument("--days", type=int, default=30)
     commands["authorize"].add_argument("--max-submissions", type=int, default=1000)
     commands["authorize"].add_argument("--yes", action="store_true", help="Acknowledge future run --submit can sign transactions and incur fees")
@@ -88,11 +92,9 @@ def main():
                       "maxSubmissions": args.max_submissions, "submittedTransaction": False,
                       "message": "Only run --submit can sign. This is your authorization, not approval from the subnet owner."}
         elif args.command == "status":
-            with locked(root) as directory:
-                c = load_config(directory)
-                rows = journal_rows(directory)
-                result = {"network": c["network"], "netuid": c["netuid"], "validatorHotkey": c["validatorHotkey"],
-                          "feed": c["feed"], "runs": [{"id": r["id"], "state": r["state"], "epoch": r["record"]["epoch"]} for r in rows]}
+            result = status_snapshot(root)
+        elif args.command == "doctor":
+            result = asyncio.run(asyncio.wait_for(doctor(root, offline=args.offline), timeout=60))
         elif args.command == "reconcile":
             result = asyncio.run(asyncio.wait_for(tick(root, only_reconcile=True), timeout=300))
         else:
@@ -100,9 +102,12 @@ def main():
                 p.error("interval must be 15..3600 seconds")
             raise SystemExit(asyncio.run(run(root, submit=args.submit, once=args.once, interval=args.interval)))
         print(json.dumps(result))
+        if args.command == "doctor" and not result["ok"]:
+            raise SystemExit(2)
+        if args.command == "reconcile" and result["state"] == "blocked":
+            raise SystemExit(2)
     except KeyboardInterrupt:
         raise SystemExit(130)
     except Exception as exc:
-        print(json.dumps({"state": "failed", "errorType": type(exc).__name__,
-                          "message": "Check arguments, private state permissions, feed trust and wallet configuration. No secrets are logged."}))
+        print(json.dumps(diagnostic(exc)))
         raise SystemExit(2)
