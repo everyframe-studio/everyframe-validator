@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "everyframe-validator"
+version = "0.1.0"
+description = "Independent Everyframe SN117 validator and signed epoch publisher"
+readme = "README.md"
+requires-python = ">=3.10,<3.15"
+dependencies = ["bittensor==11.1.0", "cryptography>=44,<51", "certifi>=2024.7.4"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10", "build>=1,<2", "twine>=6,<7"]
+
+[project.scripts]
+everyframe-validator = "everyframe_validator.cli:main"
+everyframe-publish-epoch = "everyframe_validator.publish:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"everyframe_validator.core" = ["config/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

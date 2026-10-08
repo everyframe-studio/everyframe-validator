@@ -1,0 +1,27 @@
+name: validator-checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.10', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '${{ matrix.python }}'
+      - run: python -m pip install '.[test]'
+      - run: python -m pytest -q
+      - run: python -m pip check
+      - run: python -m build
+      - run: python -m twine check dist/*
+      - run: everyframe-validator --version
+      - name: Check wheel outside source tree
+        run: |
+          python -m venv /tmp/everyframe-validator-wheel
+          /tmp/everyframe-validator-wheel/bin/pip install dist/*.whl
+          cd /tmp
+          /tmp/everyframe-validator-wheel/bin/everyframe-validator --help

@@ -1,0 +1,27 @@
+# Template: create a dedicated user; install package into /opt/everyframe-validator/.venv.
+# Initialize /var/lib/everyframe-validator as that user before enabling this unit.
+[Unit]
+Description=Everyframe independent validator (dry-run unless explicitly configured)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=everyframe-validator
+Group=everyframe-validator
+ExecStart=/opt/everyframe-validator/.venv/bin/everyframe-validator run --state-dir /var/lib/everyframe-validator
+Restart=on-failure
+RestartSec=30
+UMask=0077
+Environment=BITTENSOR_RUNTIME_CACHE_DIR=/var/lib/everyframe-validator/runtime-cache
+StateDirectory=everyframe-validator
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/everyframe-validator
+MemoryMax=1G
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

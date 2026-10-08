@@ -1,0 +1,25 @@
+services:
+  validator:
+    build: .
+    command: ["run", "--state-dir", "/state", "--interval", "60"]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:mode=1777,size=256m
+    environment:
+      BITTENSOR_RUNTIME_CACHE_DIR: /state/runtime-cache
+    volumes:
+      - validator-state:/state
+    # To sign, explicitly add --submit above after local authorization,
+    # and mount only the intended wallet read-only (see README).
+    mem_limit: 1g
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  validator-state:

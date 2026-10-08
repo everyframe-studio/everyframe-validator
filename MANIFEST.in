@@ -1,0 +1,4 @@
+include README.md PROTOCOL.md CORE-PROVENANCE.md Dockerfile compose.yaml
+include LICENSE-NOTICE.md SECURITY.md CONTRIBUTING.md RELEASING.md
+recursive-include deploy *.service
+recursive-include tests *.py
