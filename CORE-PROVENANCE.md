@@ -20,6 +20,11 @@ Packaging changes:
 - Cancelled submissions are journaled as uncertain (`BaseException` handling).
 - Confirmed but not yet read-back non-timelock submissions also block new signing.
 - Reject accounting that claims finalization beyond the current finalized chain head.
+- The pinned Bittensor 11.1.0 submission adapter uses policy-checked intent planning,
+  records the signed transaction hash before a single transport submission, and
+  can recover uncertain broadcasts using exact-hash finalized inclusion. Missing
+  evidence never permits automatic resubmission. Reconciliation still independently
+  verifies finalized weights and reveal events after a recovered successful commit.
 
 Only the authenticated aggregate path is exposed by the external CLI. Internal
 legacy synthetic/count helpers remain for source compatibility, but the runner

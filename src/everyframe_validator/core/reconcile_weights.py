@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sqlite3
 from .chain_scope import scope, add_network, check_database, check_record, read_network
+from .submission import recover
 
 
 def observation_matches(record, result, observed, last_update, identities, pending_commits=None, reveal_event=None, burn_ownership=None):
@@ -44,13 +45,20 @@ def is_reveal_event(event, netuid, hotkey):
 
 
 async def main(args):
-    import bittensor as bt
     domain = scope(getattr(args, 'network', 'test'), getattr(args, 'netuid', None))
     if domain['network'] == 'finney':
         check_database(args.journal, domain)
     db = sqlite3.connect(args.journal)
-    db.execute('PRAGMA synchronous=FULL')
-    rows = db.execute("SELECT id,state,record,result FROM weight_runs WHERE state IN ('pending_reveal','finalized')").fetchall()
+    try:
+        db.execute('PRAGMA synchronous=FULL')
+        await reconcile_database(args, domain, db)
+    finally:
+        db.close()
+
+
+async def reconcile_database(args, domain, db):
+    import bittensor as bt
+    rows = db.execute("SELECT id,state,record,result FROM weight_runs WHERE state IN ('pending_reveal','finalized','unknown','submitting')").fetchall()
     if not rows:
         print(json.dumps({'pending': 0, 'submittedTransaction': False}))
         return
@@ -60,12 +68,17 @@ async def main(args):
         block_hash = await client._substrate.raw.get_chain_finalised_head()
         block = await client._substrate.raw.get_block_number(block_hash)
         for run_id, state, raw_record, raw_result in rows:
-            record, result = json.loads(raw_record), json.loads(raw_result)
+            record, result = json.loads(raw_record), json.loads(raw_result) if raw_result else {}
             netuid = record['netuid']
             if record['network'] != domain['network'] or netuid != domain['netuid']:
                 raise ValueError('invalid_journal_scope')
             if domain['network'] == 'finney':
                 check_record(record, domain)
+            if record['validatorHotkey'] != args.validator_hotkey:
+                raise ValueError('journal_validator_mismatch')
+            if state in ('unknown', 'submitting'):
+                print(json.dumps(await recover(client, db, run_id, record, result, block)), flush=True)
+                continue
             uid = record['plan']['validatorUid']
             observed, updates, validator_key = await asyncio.gather(
                 client.query(('SubtensorModule', 'Weights'), [netuid, uid], block=block),
@@ -113,7 +126,8 @@ async def main(args):
                                           updates[uid] if uid < len(updates or []) else 0, identities, pending, result.get('revealEvent'), burn_ownership)
             report = {'runId': run_id, 'netuid': netuid, 'finalizedBlock': block,
                       'finalizedBlockHash': block_hash, 'weights': observed,
-                      'matched': matches, 'submittedTransaction': False, 'revealEvent': result.get('revealEvent')}
+                      'matched': matches, 'submittedTransaction': False, 'revealEvent': result.get('revealEvent'),
+                      'includedBlock': included_block}
             if matches:
                 new_state = 'revealed' if state == 'pending_reveal' else 'observed'
                 result['observation'] = report
@@ -128,4 +142,3 @@ async def main(args):
                                            if item['hotkey'] == args.validator_hotkey]
                 report['state'] = state
             print(json.dumps(report), flush=True)
-    db.close()

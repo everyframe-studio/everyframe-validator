@@ -118,28 +118,55 @@ systemd unit under `deploy/` is an alternative template, also dry-run by default
 
 ```bash
 everyframe-validator status --state-dir ./state/mainnet117
+everyframe-validator doctor --state-dir ./state/mainnet117
 everyframe-validator reconcile --state-dir ./state/mainnet117
 ```
+
+`status` can run while the validator is busy: it reads committed journal data and
+the last completed iteration without taking the signing-operation lock. The last
+iteration's age is shown explicitly; it is not a live heartbeat or signing permission.
+`doctor` checks the profile, journal, public wallet identity, local authorization,
+RPC/permit and signed feed without unlocking a private key or sending a transaction.
+Use `doctor --offline` to skip network checks. Missing authorization is a warning
+for dry-run operation. `signingPrerequisitesOk` reports the checks performed, not
+a guarantee that signing will succeed; offline mode cannot establish live readiness.
 
 - `dry_run`: authenticated accounting and chain checks produced a plan; no signature.
 - `waiting`: the newest closed epoch is not published; no substitute epoch or burn.
 - `pending_reveal`: a finalized commit exists, but the weights are not yet proven revealed.
 - `finalized`: non-commit-reveal submission confirmed; awaiting read-back.
+- `awaiting_readback`: waiting for finalized non-commit-reveal weights to be read back.
 - `blocked`: unresolved submission; no new signing.
+- `chain_failed`: an uncertain transaction was found finalized with a dispatch failure;
+  it remains in the journal and is not resubmitted for the same epoch.
 - `already_submitted`: persistent epoch deduplication prevented another submission.
 - `failed`: verification, chain access, authorization, or configuration failed.
 
-JSON status goes to stdout and `state-dir/status.json`; errors omit exception text
-to avoid leaking secrets. Detailed committed plans are in `journal.db`. Both state
+Normal reveal/read-back waiting is not an error (`run --once` exits successfully).
+Unresolved uncertainty returns exit code 2 from `run --once` or `reconcile`.
+Reconciliation reports include the inclusion block and, when available, pending
+commit reveal scheduling supplied by the chain. They do not claim earned alpha.
+
+JSON status goes to stdout and `state-dir/status.json`; errors use allowlisted
+codes and actionable messages rather than raw exception text that could leak
+secrets. Detailed committed plans are in `journal.db`. Both state
 databases and `identity.json` are mandatory after init—missing state is not silently
 recreated. Back up the **entire** state directory consistently while stopped.
 Do not share one state directory between hotkeys or run two machines with copied
 state and the same signing key. The lock protects one local filesystem only.
 
 For `unknown`/`submitting` after a crash, automatic retry is intentionally disabled.
-`reconcile` handles confirmed submissions; ambiguous broadcasts without a confirmed
-transaction result require manual chain investigation. Never delete the journal to
-make it proceed. There is deliberately no `force retry` or `clear pending` command.
+New submissions durably record their exact signed transaction hash **before**
+broadcast; signed transaction bytes are not stored. `reconcile` searches finalized
+blocks for that exact hash, at most 20 blocks per iteration with persisted progress.
+Confirmed success enters normal reveal/read-back reconciliation; confirmed failure
+becomes `chain_failed`. Neither path resubmits the transaction. Ordinary `run`
+iterations perform the same recovery checks.
+
+A missing transaction is **not** proof that it is safe to retry. Older journal
+entries without a saved hash remain blocked with `transaction_hash_unavailable`
+and require manual chain investigation. There is deliberately no `force retry` or
+`clear pending` command. Never delete the journal to make it proceed.
 
 Reconciliation checks exact SDK-quantized weights, finalized chain identities,
 owner identity, `LastUpdate`, absence of newer pending commits, and a matching
