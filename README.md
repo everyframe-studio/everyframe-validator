@@ -36,16 +36,61 @@ boundary hashes, registered miner identities, validator permit, owner/burn ident
 weight constraints, cooldown, and identity stability immediately before signing.
 TEE execution verification stays in the existing worker/coordinator path.
 
-## Install from this directory
+## Docker-based installation (recommended)
+
+Use the prebuilt release image as the preferred installation path. Linux amd64
+operators do not need to build the validator or install Python to run the image.
+Once a release is published, download `image.txt` and `SHA256SUMS` from a
+GitHub Release, verify the checksum, and use its immutable digest:
+
+```bash
+sha256sum --check --ignore-missing SHA256SUMS
+docker pull "$(cat image.txt)"
+docker run --rm --network none "$(cat image.txt)" --version
+```
+
+For persistent dry-run deployment, follow [the operator guide](deploy/README.md).
+Releases do not update running validators automatically; no `latest` tag is used.
+
+### Optional: build the Docker image locally
+
+If you prefer to build the image from this repository:
+
+```bash
+docker compose build
+docker compose run --rm validator init --state-dir /state \
+  --validator-hotkey YOUR_PUBLIC_SS58 \
+  --wallet YOUR_WALLET_NAME --wallet-hotkey YOUR_HOTKEY_NAME --wallet-path /wallets
+docker compose up -d
+docker compose logs -f validator
+```
+
+The named volume is initialized for UID/GID 10001. The default compose service is
+**dry-run**, non-root, read-only except its private state, and survives restarts.
+For signing, initialize with wallet flags, add a read-only wallet mount, run the
+authorization command inside the container, and explicitly add `--submit` to its
+command. Give UID 10001 access to the selected hotkey without making it public.
+For encrypted keys, mount the password JSON read-only with matching ownership.
+Wallet flags are stored during init but no wallet is opened in dry-run mode. If
+you omitted them initially, stop the service and edit only the `wallet`,
+`walletHotkey`, `walletPath` and `walletPasswordFile` fields in private `config.json`;
+keep the validator identity, trust pins and journals unchanged.
+Do not mount unrelated wallets or the owner's server credentials. The supplied
+systemd unit under `deploy/` is an alternative template, also dry-run by default.
+
+## Install from source (alternative)
 
 Linux, Python 3.10–3.14, reliable network access, and a registered validator hotkey
 with an active validator permit are required for signing. Registration alone does
 not grant a permit. Your wallet must have enough funds for applicable chain fees.
 
+Run these commands from the repository root:
+
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install .
-.venv/bin/everyframe-validator --help
+source .venv/bin/activate
+python -m pip install .
+everyframe-validator --help
 ```
 
 Do not run validators as root. No dependency on the sibling `everyframe-subnet`
@@ -92,45 +137,6 @@ read-only with respect to the chain. Per-transaction SDK fee policy is capped at
 0.02 TAO; this is a safety ceiling, not an expected fee or income guarantee.
 Keep the process running to reconcile commits/reveals. Epochs come from finalized
 chain state; only the latest closed epoch is eligible, never backlog replay.
-
-### Docker
-
-After publication, Linux amd64 operators can use a prebuilt image without
-building or installing Python. Download `image.txt` and `SHA256SUMS` from a
-GitHub Release, verify the checksum, and use its immutable digest:
-
-```bash
-sha256sum --check --ignore-missing SHA256SUMS
-docker pull "$(cat image.txt)"
-docker run --rm --network none "$(cat image.txt)" --version
-```
-
-For persistent dry-run deployment, follow [the operator guide](deploy/README.md).
-Releases do not update running validators automatically; no `latest` tag is used.
-
-To build from source instead:
-
-```bash
-docker compose build
-docker compose run --rm validator init --state-dir /state \
-  --validator-hotkey YOUR_PUBLIC_SS58 \
-  --wallet YOUR_WALLET_NAME --wallet-hotkey YOUR_HOTKEY_NAME --wallet-path /wallets
-docker compose up -d
-docker compose logs -f validator
-```
-
-The named volume is initialized for UID/GID 10001. The default compose service is
-**dry-run**, non-root, read-only except its private state, and survives restarts.
-For signing, initialize with wallet flags, add a read-only wallet mount, run the
-authorization command inside the container, and explicitly add `--submit` to its
-command. Give UID 10001 access to the selected hotkey without making it public.
-For encrypted keys, mount the password JSON read-only with matching ownership.
-Wallet flags are stored during init but no wallet is opened in dry-run mode. If
-you omitted them initially, stop the service and edit only the `wallet`,
-`walletHotkey`, `walletPath` and `walletPasswordFile` fields in private `config.json`;
-keep the validator identity, trust pins and journals unchanged.
-Do not mount unrelated wallets or the owner's server credentials. The supplied
-systemd unit under `deploy/` is an alternative template, also dry-run by default.
 
 ## Operations
 
