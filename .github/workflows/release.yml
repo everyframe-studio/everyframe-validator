@@ -1,0 +1,149 @@
+name: Release validator
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to release or resume
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: validator-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.version.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: version
+        name: Validate immutable release target
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          SHA=$(git rev-parse "refs/tags/$TAG^{commit}")
+          git merge-base --is-ancestor "$SHA" origin/main
+          git checkout --detach "$SHA"
+          python3 - "$TAG" <<'PY'
+          import ast, pathlib, sys, tomllib
+          version = tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version']
+          tree = ast.parse(pathlib.Path('src/everyframe_validator/__init__.py').read_text())
+          declared = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == '__version__' for t in n.targets))
+          assert sys.argv[1] == 'v' + version and declared == version, 'Version/tag mismatch'
+          PY
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+  test:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      matrix:
+        python: ['3.10', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: |
+          python -m pip install '.[test]'
+          python -m pytest -q
+          python -m pip check
+          python -m build
+          python -m twine check dist/*
+          python -m venv /tmp/wheel-check
+          /tmp/wheel-check/bin/pip install dist/*.whl
+          cd /tmp
+          /tmp/wheel-check/bin/everyframe-validator --help
+  publish:
+    needs: [validate, test]
+    runs-on: ubuntu-24.04
+    environment: release
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.validate.outputs.tag }}
+      SHA: ${{ needs.validate.outputs.sha }}
+      IMAGE: ghcr.io/everyframe-studios/everyframe-validator
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.13'
+      - name: Refuse changes to a published release
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > /tmp/releases.json
+          python - <<'PY'
+          import json, os
+          for r in (r for page in json.load(open('/tmp/releases.json')) for r in page):
+              if r['tag_name'] == os.environ['TAG'] and not r['draft']:
+                  raise SystemExit('Release already published; use a new version.')
+          PY
+      - name: Build packages
+        run: |
+          python -m pip install build twine
+          python -m build
+          python -m twine check dist/*
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and smoke-test image, or resume an unpublished image
+        run: |
+          set -euo pipefail
+          if docker manifest inspect "$IMAGE:$TAG" >/dev/null 2>&1; then
+            docker pull "$IMAGE:$TAG"
+            test "$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE:$TAG")" = "$SHA"
+            PUSH_IMAGE=false
+          else
+            docker build --platform linux/amd64 --label "org.opencontainers.image.revision=$SHA" --label "org.opencontainers.image.version=$TAG" -t "$IMAGE:$TAG" .
+            PUSH_IMAGE=true
+          fi
+          test "$(docker run --rm --network none "$IMAGE:$TAG" --version)" = "${TAG#v}"
+          docker run --rm --network none "$IMAGE:$TAG" --help
+          if [ "$PUSH_IMAGE" = true ]; then docker push "$IMAGE:$TAG"; fi
+          docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$TAG" > dist/image.txt
+      - name: Require anonymous image access
+        run: |
+          set -euo pipefail
+          PUBLIC_CONFIG=$(mktemp -d)
+          if ! docker --config "$PUBLIC_CONFIG" manifest inspect "$(cat dist/image.txt)" >/dev/null; then
+            echo 'Set the GHCR package visibility to Public in package settings, then rerun this workflow. No GitHub Release has been published.' >&2
+            exit 1
+          fi
+      - name: Publish release assets and checksums
+        run: |
+          set -euo pipefail
+          cp deploy/compose.yaml dist/compose.yaml
+          cp deploy/deploy-release.py dist/deploy-release.py
+          cp deploy/README.md dist/DEPLOYMENT.md
+          (cd dist && sha256sum *.whl *.tar.gz image.txt compose.yaml deploy-release.py DEPLOYMENT.md > SHA256SUMS)
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --target "$SHA" --draft --title "Everyframe Validator $TAG" --generate-notes
+          fi
+          test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true
+          gh release upload "$TAG" dist/* --clobber
+          gh release edit "$TAG" --draft=false

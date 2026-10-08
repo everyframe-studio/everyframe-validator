@@ -1,0 +1,59 @@
+name: Deploy validator canary
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published stable release (for example v0.1.0)
+        required: true
+        type: string
+      environment:
+        description: Protected operator environment (never a third-party miner)
+        type: choice
+        options: [validator-staging, validator-production]
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: validator-deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: ${{ inputs.environment }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Resolve published image digest
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = false
+          test "$(gh release view "$TAG" --json isPrerelease --jq .isPrerelease)" = false
+          gh release download "$TAG" --pattern image.txt --pattern SHA256SUMS --dir release
+          (cd release && sha256sum --check --ignore-missing SHA256SUMS)
+          IMAGE=$(cat release/image.txt)
+          [[ "$IMAGE" =~ ^ghcr.io/everyframe-studios/everyframe-validator@sha256:[0-9a-f]{64}$ ]]
+          echo "VALIDATOR_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+      - name: Deploy approved digest over pinned SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+$ ]]
+          [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          SSH_DIR=$(mktemp -d)
+          trap 'rm -f "$SSH_DIR/key" "$SSH_DIR/known_hosts"; rmdir "$SSH_DIR"' EXIT
+          umask 077
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$SSH_DIR/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$SSH_DIR/known_hosts"
+          ssh -i "$SSH_DIR/key" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$SSH_DIR/known_hosts" -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$DEPLOY_USER@$DEPLOY_HOST" "python3 /opt/everyframe-validator-deploy/deploy-release.py '$VALIDATOR_IMAGE'"
+          echo "Deployed dry-run canary: $VALIDATOR_IMAGE" >> "$GITHUB_STEP_SUMMARY"

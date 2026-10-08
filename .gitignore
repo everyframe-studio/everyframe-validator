@@ -25,3 +25,6 @@ credentials.json
 invitation*.json
 .DS_Store
 coverage/
+deploy/current-image.txt
+deploy/deployment-pending.json
+deploy/deployment.lock
