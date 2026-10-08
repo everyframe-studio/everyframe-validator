@@ -1,0 +1,32 @@
+# Managed operator canary. This file intentionally cannot enable signing.
+# Use a separate host/state from any active signing validator.
+services:
+  validator:
+    image: ${VALIDATOR_IMAGE:?Set a released image digest}
+    command: ["run", "--state-dir", "/state", "--interval", "60"]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:mode=1777,size=256m
+    environment:
+      BITTENSOR_RUNTIME_CACHE_DIR: /state/runtime-cache
+    volumes:
+      - validator-state:/state
+    healthcheck:
+      test: ["CMD", "python", "-m", "everyframe_validator.healthcheck", "/state"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 360s
+    stop_grace_period: 310s
+    mem_limit: 1g
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  validator-state:

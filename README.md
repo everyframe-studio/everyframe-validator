@@ -7,7 +7,10 @@ provider API keys, GPU, Phala account, or miner TEE is required.
 
 ## Release status
 
-Version 0.1.0 is a local source release, **not published to PyPI or deployed**.
+Version 0.1.0 has release automation for GitHub assets and a public GHCR image;
+it is **not published to PyPI**. Workflow files alone do not mean a release has
+run or a validator is deployed. Check the repository's Releases and Actions
+pages for publication status. See [RELEASING.md](RELEASING.md).
 The default feed URLs are reserved integration targets: the coordinator must
 publish real signed finalized epochs there before validators can score work.
 A missing epoch produces `waiting`; it never becomes a fabricated zero-work epoch.
@@ -91,6 +94,21 @@ Keep the process running to reconcile commits/reveals. Epochs come from finalize
 chain state; only the latest closed epoch is eligible, never backlog replay.
 
 ### Docker
+
+After publication, Linux amd64 operators can use a prebuilt image without
+building or installing Python. Download `image.txt` and `SHA256SUMS` from a
+GitHub Release, verify the checksum, and use its immutable digest:
+
+```bash
+sha256sum --check --ignore-missing SHA256SUMS
+docker pull "$(cat image.txt)"
+docker run --rm --network none "$(cat image.txt)" --version
+```
+
+For persistent dry-run deployment, follow [the operator guide](deploy/README.md).
+Releases do not update running validators automatically; no `latest` tag is used.
+
+To build from source instead:
 
 ```bash
 docker compose build
@@ -225,3 +243,7 @@ Tests use generated test signing keys, synthetic accounting, and mocked chain/wa
 submission. They incur no provider charges, registration burns, or weight transactions.
 A production rollout still requires a live publisher, a separate testnet validator
 canary with finalized reveal verification, then explicitly authorized mainnet rollout.
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE) and [LICENSE-NOTICE.md](LICENSE-NOTICE.md).
