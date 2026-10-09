@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "everyframe-validator"
 version = "0.1.0"
-description = "Independent Everyframe SN117 validator and signed epoch publisher"
+description = "Independent EveryFrame SN117 validator and signed epoch publisher"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "LICENSE-NOTICE.md"]

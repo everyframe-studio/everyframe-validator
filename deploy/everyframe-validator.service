@@ -1,7 +1,7 @@
 # Template: create a dedicated user; install package into /opt/everyframe-validator/.venv.
 # Initialize /var/lib/everyframe-validator as that user before enabling this unit.
 [Unit]
-Description=Everyframe independent validator (dry-run unless explicitly configured)
+Description=EveryFrame independent validator (dry-run unless explicitly configured)
 After=network-online.target
 Wants=network-online.target
 

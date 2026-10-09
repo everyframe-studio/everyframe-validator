@@ -17,7 +17,7 @@ from .doctor import doctor
 
 
 def parser():
-    p = argparse.ArgumentParser(description="Everyframe independent validator. Mainnet SN117; dry-run by default.")
+    p = argparse.ArgumentParser(description="EveryFrame independent validator. Mainnet SN117; dry-run by default.")
     p.add_argument("--version", action="version", version=__version__)
     sub = p.add_subparsers(dest="command", required=True)
     init = sub.add_parser("init", help="Initialize private profile (no network calls or transactions)")

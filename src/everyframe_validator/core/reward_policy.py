@@ -71,7 +71,7 @@ def epoch_snapshot(database, start, end, finalized_at):
 
     Fees are immutable server-priced earnings captured at order creation and
     copied into operator-approved payables, never a miner-reported provider bill.
-    There is no separate surcharge in the current Everyframe accounting schema.
+    There is no separate surcharge in the current EveryFrame accounting schema.
     """
     if any(type(v) is not int for v in (start, end, finalized_at)) or not 0 <= start < end <= finalized_at:
         raise ValueError('invalid finalized accounting interval')
