@@ -1,6 +1,6 @@
-# Everyframe Validator
+# EveryFrame Validator
 
-Standalone validator for **Everyframe mainnet SN117**, with explicit testnet SN566 support.
+Standalone validator for **EveryFrame mainnet SN117**, with explicit testnet SN566 support.
 External operators download signed finalized accounting, calculate weights locally,
 and submit with their **own** Bittensor hotkey. No owner SSH, private accounting DB,
 provider API keys, GPU, Phala account, or miner TEE is required.
@@ -19,7 +19,7 @@ This release does not activate mainnet mining, register a wallet, or spend TAO.
 ## Trust model
 
 ```text
-Everyframe reviewed accounting → owner-side finalizer → signed public epoch JSON
+EveryFrame reviewed accounting → owner-side finalizer → signed public epoch JSON
                                                            ↓
 External validator: verify signer + chain + epoch → compute weights → own hotkey
 ```
@@ -198,7 +198,7 @@ timelocked reveal event. An identical old vector alone is not reveal proof.
 
 ## Publish accounting (subnet operator only)
 
-The existing Everyframe finalizer produces the sealed `reward-epochs.db`.
+The existing EveryFrame finalizer produces the sealed `reward-epochs.db`.
 The included adapter reads that database **read-only** and emits a privacy-safe
 public aggregate with signed miner-hotkey bindings. It never copies the SQLite
 database, individual job IDs, raw receipts, prompts, outputs, tokens, or proofs.
