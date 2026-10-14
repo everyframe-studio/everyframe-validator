@@ -8,7 +8,7 @@ import time
 from types import SimpleNamespace
 
 from .core import validator, reconcile_weights
-from .core.chain_scope import scope, read_network, check_authorization
+from .core.chain_scope import scope, read_network, check_authorization, rpc_options
 from .core.reward_policy import seal_epoch, digest
 from .feed import fetch, verify, FeedUnavailable
 from .state import locked, load_config, journal_rows, atomic_json, read_private
@@ -21,6 +21,7 @@ async def chain_target(config):
     domain = scope(config["network"], config["netuid"])
     async with bt.Client(
         network=read_network(domain),
+        **rpc_options(domain),
         fallback_endpoints=[],
         archive_endpoints=[],
         retry_forever=False,
@@ -59,10 +60,14 @@ async def reconcile(root, config):
     return await captured(reconcile_weights.main, args)
 
 
-async def tick(root, submit=False, only_reconcile=False):
+async def tick(root, submit=False, only_reconcile=False, weight_interval_blocks=0, missing_accounting='wait'):
     with locked(root) as root:
         try:
-            result = await _tick(root, submit, only_reconcile)
+            if weight_interval_blocks and not only_reconcile:
+                from .cadence import tick as cadence_tick
+                result = await cadence_tick(root, load_config(root), submit, weight_interval_blocks, missing_accounting)
+            else:
+                result = await _tick(root, submit, only_reconcile)
         except asyncio.CancelledError:
             atomic_json(
                 root / "status.json",
@@ -100,11 +105,11 @@ async def _tick(root, submit=False, only_reconcile=False):
             "runs": [{"id": r["id"], "state": r["state"]} for r in unresolved],
             "next": "Run reconcile to check finalized evidence. Never clear the journal or repeat an uncertain transaction.",
         }
-    pending = [r for r in rows if r["state"] in ("pending_reveal", "finalized")]
+    pending = [r for r in rows if r["state"] in ("pending_reveal", "finalized", "commit_finalized")]
     if pending:
         return {
             "state": "pending_reveal"
-            if any(r["state"] == "pending_reveal" for r in pending)
+            if any(r["state"] in ("pending_reveal", "commit_finalized") for r in pending)
             else "awaiting_readback",
             "reason": "waiting_for_finalized_chain_evidence",
             "reports": reports,
@@ -190,10 +195,11 @@ async def _tick(root, submit=False, only_reconcile=False):
     return result
 
 
-async def run(root, submit=False, once=False, interval=60):
+async def run(root, submit=False, once=False, interval=60, weight_interval_blocks=0, missing_accounting='wait'):
     while True:
         try:
-            result = await asyncio.wait_for(tick(root, submit=submit), timeout=300)
+            result = await asyncio.wait_for(tick(root, submit=submit, weight_interval_blocks=weight_interval_blocks,
+                                                missing_accounting=missing_accounting), timeout=300)
             failed = result["state"] == "blocked"
         except Exception as exc:
             failed = True

@@ -11,7 +11,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: validator-release-${{ inputs.tag || github.ref_name }}
+  group: validator-release
   cancel-in-progress: false
 jobs:
   validate:
@@ -82,7 +82,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       TAG: ${{ needs.validate.outputs.tag }}
       SHA: ${{ needs.validate.outputs.sha }}
-      IMAGE: ghcr.io/everyframe-studios/everyframe-validator
+      IMAGE: ghcr.io/everyframe-studio/everyframe-validator
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -124,6 +124,14 @@ jobs:
           fi
           test "$(docker run --rm --network none "$IMAGE:$TAG" --version)" = "${TAG#v}"
           docker run --rm --network none "$IMAGE:$TAG" --help
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /state:uid=10001,gid=10001,mode=0700,size=32m --tmpfs /tmp:mode=1777,size=32m \
+            --entrypoint sh "$IMAGE:$TAG" -ec '
+              everyframe-validator init --state-dir /state/profile --validator-hotkey 5G9K4zDrdcAE8F1MaaZNxLGXuhMApR5ENZGTs2wAEhiptHEf
+              everyframe-validator doctor --state-dir /state/profile --offline
+              everyframe-validator run --help | grep -- --rpc-url
+              test ! -e /state/profile/authorization.json
+            '
           if [ "$PUSH_IMAGE" = true ]; then docker push "$IMAGE:$TAG"; fi
           docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$TAG" > dist/image.txt
       - name: Require anonymous image access
@@ -147,3 +155,12 @@ jobs:
           test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true
           gh release upload "$TAG" dist/* --clobber
           gh release edit "$TAG" --draft=false
+      - name: Promote published stable release to latest
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name)" = "$TAG"
+          docker tag "$IMAGE:$TAG" "$IMAGE:latest"
+          docker push "$IMAGE:latest"
+          PUBLIC_CONFIG=$(mktemp -d)
+          docker --config "$PUBLIC_CONFIG" manifest inspect "$IMAGE:latest" >/dev/null
+          echo "Stable image: $IMAGE:latest" >> "$GITHUB_STEP_SUMMARY"

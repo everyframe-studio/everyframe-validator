@@ -7,14 +7,14 @@ provider API keys, GPU, Phala account, or miner TEE is required.
 
 ## Release status
 
-Version 0.1.0 has release automation for GitHub assets and a public GHCR image;
-it is **not published to PyPI**. Workflow files alone do not mean a release has
-run or a validator is deployed. Check the repository's Releases and Actions
-pages for publication status. See [RELEASING.md](RELEASING.md).
-The default feed URLs are reserved integration targets: the coordinator must
-publish real signed finalized epochs there before validators can score work.
-A missing epoch produces `waiting`; it never becomes a fabricated zero-work epoch.
-This release does not activate mainnet mining, register a wallet, or spend TAO.
+Version 0.2.0 provides a Linux amd64 image at
+`ghcr.io/everyframe-studio/everyframe-validator:latest` and versioned tags.
+It is **not published to PyPI**. Check [Releases](https://github.com/everyframe-studio/everyframe-validator/releases)
+for published versions; see [RELEASING.md](RELEASING.md).
+The defaults are Finney RPC, a 100-block minimum submission gap, and an explicit
+burn-only plan when the newest accounting epoch is absent (HTTP 404).
+Invalid signatures and network errors still block. No fake zero-work accounting
+is created. Installation never registers a wallet or authorizes signing.
 
 ## Trust model
 
@@ -38,26 +38,56 @@ TEE execution verification stays in the existing worker/coordinator path.
 
 ## Docker-based installation (recommended)
 
-Use the prebuilt release image as the preferred installation path. Linux amd64
-operators do not need to build the validator or install Python to run the image.
-Once a release is published, download `image.txt` and `SHA256SUMS` from a
-GitHub Release, verify the checksum, and use its immutable digest:
+Use the prebuilt image. No Python, source build, or `image.txt` is needed.
+`--pull always` fetches the latest published stable image when the command runs:
 
 ```bash
-sha256sum --check --ignore-missing SHA256SUMS
-docker pull "$(cat image.txt)"
-docker run --rm --network none "$(cat image.txt)" --version
+docker pull ghcr.io/everyframe-studio/everyframe-validator:latest
+docker run --rm --network none ghcr.io/everyframe-studio/everyframe-validator:latest --version
+docker volume create everyframe-validator-state
+docker run --rm --pull always \
+  -v everyframe-validator-state:/state \
+  ghcr.io/everyframe-studio/everyframe-validator:latest init \
+  --state-dir /state --validator-hotkey YOUR_PUBLIC_SS58
+docker run -d --name everyframe-validator --pull always --restart unless-stopped \
+  --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --tmpfs /tmp:mode=1777,size=256m \
+  -e BITTENSOR_RUNTIME_CACHE_DIR=/state/runtime-cache \
+  -v everyframe-validator-state:/state \
+  ghcr.io/everyframe-studio/everyframe-validator:latest run --state-dir /state
+docker logs -f everyframe-validator
 ```
 
-For persistent dry-run deployment, follow [the operator guide](deploy/README.md).
-Releases do not update running validators automatically; no `latest` tag is used.
+This starts a **dry-run**, not a signing validator. Follow [Explicit signing](#explicit-signing)
+and the wallet-mount instructions below before enabling `--submit`.
+Do not rerun `init` on an initialized volume or delete it to resolve errors.
+`latest` does not hot-replace an already running process: pull and recreate the
+container deliberately with the **same state volume**, stopping the old instance
+first. Review changes before upgrading a signing validator.
+
+If using this repository's root Compose file, it defaults to the latest image:
+
+```bash
+docker compose run --rm validator init --state-dir /state --validator-hotkey YOUR_PUBLIC_SS58
+docker compose up -d
+# Later, update the existing container without deleting its state:
+docker compose pull
+docker compose up -d
+```
+
+Use either the standalone Docker commands or Compose, not both with the same hotkey.
+Pin `:v0.2.0` or an immutable `@sha256:...` for reproducibility. The separate
+[managed canary workflow](deploy/README.md) still requires immutable release
+digests; `image.txt` remains available for that advanced workflow only.
 
 ### Optional: build the Docker image locally
 
 If you prefer to build the image from this repository:
 
 ```bash
-docker compose build
+docker build -t everyframe-validator:local .
+export VALIDATOR_IMAGE=everyframe-validator:local
+export VALIDATOR_PULL_POLICY=never
 docker compose run --rm validator init --state-dir /state \
   --validator-hotkey YOUR_PUBLIC_SS58 \
   --wallet YOUR_WALLET_NAME --wallet-hotkey YOUR_HOTKEY_NAME --wallet-path /wallets
@@ -133,10 +163,11 @@ everyframe-validator run --state-dir ./state/mainnet117 --submit
 This is **your local consent**, not subnet-owner approval. Consent expires and is
 bounded by submission count; renewing it does not clear pending submissions or
 allow replaying old epochs. Without `--submit`, even an authorized profile stays
-read-only with respect to the chain. Per-transaction SDK fee policy is capped at
-0.02 TAO; this is a safety ceiling, not an expected fee or income guarantee.
-Keep the process running to reconcile commits/reveals. Epochs come from finalized
-chain state; only the latest closed epoch is eligible, never backlog replay.
+read-only with respect to the chain. The default block-paced mode has a zero-fee
+policy; a nonzero/unavailable fee estimate blocks signing. The legacy epoch mode
+retains its 0.02 TAO ceiling. Neither is an income guarantee.
+Keep the process running to recover uncertain transactions. Only the latest
+closed accounting epoch is eligible, never backlog replay.
 
 ## Operations
 
@@ -145,6 +176,66 @@ everyframe-validator status --state-dir ./state/mainnet117
 everyframe-validator doctor --state-dir ./state/mainnet117
 everyframe-validator reconcile --state-dir ./state/mainnet117
 ```
+
+### RPC endpoint
+
+Mainnet uses the SDK's **Finney** endpoint by default; testnet uses its test
+endpoint. All paths verify the expected genesis before trusting chain data.
+Choose an alternative when your RPC lacks historical state:
+
+```bash
+everyframe-validator run --state-dir ./state/mainnet117 --rpc-url wss://rpc.example.org
+# Or apply the override to run, doctor and reconcile:
+export EVERYFRAME_RPC_URL=wss://rpc.example.org
+everyframe-validator doctor --state-dir ./state/mainnet117
+```
+
+For Docker pass `-e EVERYFRAME_RPC_URL=wss://rpc.example.org`; Compose reads the
+same variable from the shell or a private `.env`. Overrides change only the
+transport, never the network, hotkey, accounting signer or journal identity.
+Use `wss://` without URL credentials/query parameters; `ws://` is allowed only
+for localhost nodes. Historical-state errors fail closed, never clear journals.
+
+For an authenticated provider such as Blockmachine, use
+`EVERYFRAME_RPC_URL=wss://rpc.blockmachine.io` and either
+`EVERYFRAME_RPC_API_KEY` or `EVERYFRAME_RPC_API_KEY_FILE` (not both).
+The key is sent only as an Authorization header to the explicitly selected
+endpoint. Never put keys in command arguments or Git. A key file must contain
+only the key, be owned by the validator user (container UID 10001), have mode
+0600, and be mounted read-only. In Compose, add the file mount and
+`EVERYFRAME_RPC_API_KEY_FILE` environment entry when using that option.
+There is no silent fallback that could send a key to another endpoint.
+
+### 100-block cadence and missing-accounting burn
+
+These are the defaults, shown explicitly:
+
+```bash
+everyframe-validator run --state-dir ./state/mainnet117 --submit \
+  --interval 15 --weight-interval-blocks 100 --missing-accounting burn
+```
+
+The interval is a **minimum finalized-block gap**, not an exact wall-clock timer.
+The chain's rate limit takes precedence if higher. Valid signed accounting for
+the latest closed epoch is reused until a newer epoch closes; it is a weight
+refresh, not another payable or a claim of additional work. Accounting epochs
+themselves are not shortened. With `burn`, only an absent latest epoch
+(HTTP 404) produces a full-weight allocation to the verified subnet-owner burn
+UID, labelled `missing_epoch_burn`. It never creates a fake signed/zero-work
+artifact. Signature failures, conflicting accounting, timeouts, and other HTTP
+failures still block submission. Set `--missing-accounting wait` to disable
+the burn fallback. `doctor` continues to report an absent feed; that describes
+accounting availability even when the run loop is configured to burn.
+
+Finalized commits may queue while earlier commits await the chain's reveal
+delay. They are recorded as `commit_finalized`, **not** `revealed`. The cadence
+does not individually prove those reveals. Chain pending-commit counts are
+checked, and uncertain broadcasts still block all further submissions until
+exact transaction recovery succeeds. The existing authorization expiry and
+submission-count cap remain in force; faster cadence consumes that cap sooner.
+No chain hyperparameters are changed. To use the original epoch/reveal gating,
+set `--weight-interval-blocks 0 --missing-accounting wait`. Returning to that
+mode with cadence commits still unverified blocks new signing.
 
 `status` can run while the validator is busy: it reads committed journal data and
 the last completed iteration without taking the signing-operation lock. The last
@@ -155,8 +246,9 @@ Use `doctor --offline` to skip network checks. Missing authorization is a warnin
 for dry-run operation. `signingPrerequisitesOk` reports the checks performed, not
 a guarantee that signing will succeed; offline mode cannot establish live readiness.
 
-- `dry_run`: authenticated accounting and chain checks produced a plan; no signature.
-- `waiting`: the newest closed epoch is not published; no substitute epoch or burn.
+- `dry_run`: chain checks and signed accounting (or the configured missing-epoch burn fallback) produced a plan; no signature.
+- `waiting`: cooldown, pending-commit limit, or an absent epoch with `--missing-accounting wait`; check `reason`.
+- `commit_finalized`: block-paced submission finalized; it is not proof of reveal.
 - `pending_reveal`: a finalized commit exists, but the weights are not yet proven revealed.
 - `finalized`: non-commit-reveal submission confirmed; awaiting read-back.
 - `awaiting_readback`: waiting for finalized non-commit-reveal weights to be read back.

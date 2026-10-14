@@ -13,7 +13,9 @@ Packaging changes:
 
 - Relative imports and bundled immutable network profiles.
 - No owner CLI entrypoints or owner runner/SSH snapshot code.
-- Mainnet uses the pinned official archive endpoint for historical boundary reads.
+- Mainnet defaults to the SDK Finney endpoint; operators can explicitly select
+  another RPC. Genesis verification remains required, and missing historical
+  state fails closed rather than silently switching networks or resetting state.
 - Local operator consent allows up to 365 days/1,000,000 submissions rather than
   the owner's 24-hour/3-submission pilot restriction. It applies on both networks.
   Consent is not issued or approved by the subnet owner.

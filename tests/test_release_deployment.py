@@ -9,11 +9,11 @@ from everyframe_validator.healthcheck import ready
 spec = importlib.util.spec_from_file_location("deploy_release", Path(__file__).resolve().parents[1] / "deploy/deploy-release.py")
 release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
-OLD = "ghcr.io/everyframe-studios/everyframe-validator@sha256:" + "a" * 64
-NEW = "ghcr.io/everyframe-studios/everyframe-validator@sha256:" + "b" * 64
+OLD = "ghcr.io/everyframe-studio/everyframe-validator@sha256:" + "a" * 64
+NEW = "ghcr.io/everyframe-studio/everyframe-validator@sha256:" + "b" * 64
 
 
-@pytest.mark.parametrize("state", ["dry_run", "already_submitted", "pending_reveal", "awaiting_readback", "finalized"])
+@pytest.mark.parametrize("state", ["dry_run", "already_submitted", "pending_reveal", "awaiting_readback", "finalized", "commit_finalized"])
 def test_ready_states(state):
     assert ready({"state": state, "atMs": 999_000}, now=1000, started_at=900)
 
@@ -27,7 +27,15 @@ def test_stale_status():
     assert not ready({"state": "dry_run", "atMs": 500_000}, now=1000, started_at=1)
 
 
-@pytest.mark.parametrize("image", ["latest", OLD + ";echo bad", OLD + "\n", OLD.replace("everyframe-studios", "attacker"), OLD.replace("sha256:", "sha512:")])
+def test_cadence_wait_is_healthy_only_with_recent_block_evidence():
+    status = {'state': 'waiting', 'reason': 'block_cadence', 'atMs': 999_000,
+              'finalizedBlock': 100, 'nextEligibleBlock': 200}
+    assert ready(status, now=1000, started_at=900)
+    assert not ready({**status, 'nextEligibleBlock': 99}, now=1000, started_at=900)
+    assert not ready({**status, 'reason': 'newest_epoch_not_published'}, now=1000, started_at=900)
+
+
+@pytest.mark.parametrize("image", ["latest", OLD + ";echo bad", OLD + "\n", OLD.replace("everyframe-studio", "attacker"), OLD.replace("sha256:", "sha512:")])
 def test_reject_mutable_or_untrusted_image(image):
     with pytest.raises(ValueError):
         release.valid_image(image)

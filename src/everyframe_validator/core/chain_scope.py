@@ -3,8 +3,15 @@ import json
 from pathlib import Path
 import sqlite3
 import time
+from .rpc import endpoint, options
 
 ROOT = Path(__file__).resolve().parent
+
+
+def rpc_options(domain):
+    """Optional header authentication, shared by every chain-reading path."""
+    return options(domain)
+
 PROFILES = {
     name: json.loads((ROOT / 'config' / filename).read_text())
     for name, filename in [('test', 'testnet.json'), ('finney', 'mainnet.json')]
@@ -12,12 +19,11 @@ PROFILES = {
 
 
 def read_network(domain):
-    """Use a pinned archive as the PRIMARY for historical mainnet reads.
+    """Finney by default; explicit RPC overrides still require genesis checks.
 
-    No transparent cross-endpoint fallback: callers check this connection's
-    genesis before using any data. Lite nodes prune before a full reward window.
+    No transparent fallback or discarded journals when historical state is absent.
     """
-    return 'wss://archive.chain.opentensor.ai:443' if domain['network'] == 'finney' else 'test'
+    return endpoint(domain)
 
 
 def scope(network='test', netuid=None):

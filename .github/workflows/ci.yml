@@ -39,5 +39,5 @@ jobs:
           docker run --rm --network none --entrypoint python validator-ci -c 'from everyframe_validator.healthcheck import container_started_at; import time; assert 0 <= time.time() - container_started_at() < 60'
       - name: Validate managed Compose configuration
         env:
-          VALIDATOR_IMAGE: ghcr.io/everyframe-studios/everyframe-validator@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          VALIDATOR_IMAGE: ghcr.io/everyframe-studio/everyframe-validator@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         run: docker compose --file deploy/compose.yaml config --quiet
