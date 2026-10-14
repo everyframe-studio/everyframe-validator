@@ -1,7 +1,7 @@
 # Releasing EveryFrame Validator
 
 Releases provide Python wheel/source distributions and a Linux amd64 image at
-`ghcr.io/everyframe-studios/everyframe-validator`. Publishing does not deploy,
+`ghcr.io/everyframe-studio/everyframe-validator`. Publishing does not deploy,
 update third-party validators, or authorize signing. PyPI is not configured.
 
 ## One-time GitHub setup
@@ -22,15 +22,15 @@ update third-party validators, or authorize signing. PyPI is not configured.
 ## Publish a version
 
 1. Make a branch and PR. Set the same version in `pyproject.toml` and
-   `src/everyframe_validator/__init__.py`. Both already specify `0.1.0` for the
-   first release. Review sources, dependency licenses and package contents.
+   `src/everyframe_validator/__init__.py`. Both must match the new release tag.
+   Review sources, dependency licenses and package contents.
 2. Merge after CI passes. From the reviewed main commit:
 
    ```bash
    git switch main
    git pull --ff-only
-   git tag -a v0.1.0 -m "EveryFrame Validator v0.1.0"
-   git push origin v0.1.0
+   git tag -a v0.2.0 -m "EveryFrame Validator v0.2.0"
+   git push origin v0.2.0
    ```
 
 3. Approve **Release validator**. It checks version/tag/main ancestry, tests and
@@ -40,10 +40,18 @@ update third-party validators, or authorize signing. PyPI is not configured.
 4. Download assets and run `sha256sum --check SHA256SUMS`. Assets include wheel,
    source archive, deployment tools, and the immutable digest in `image.txt`.
 
-No moving `latest` tag is published. Published releases cannot be overwritten
-by this workflow. Never move release tags. Retry an unpublished release using
+After publication, the stable release image is also tagged `latest`. This alias
+does not replace a running validator automatically. Versioned tags and digests
+remain available, and managed deployments still pin a digest. Never move version
+tags. Published releases cannot be overwritten by this workflow. Retry an unpublished release using
 **Run workflow → tag** or rerun failed jobs; a source change requires a new
 version. Interrupted draft releases are not deployable.
+
+The v0.1.0 image was published before the organization rename. Its `image.txt`
+may be corrected to `ghcr.io/everyframe-studio/everyframe-validator` while keeping
+the exact original digest; update its corresponding SHA256SUMS entry and record
+the metadata-only repair in the release notes. Never rebuild or retag that version
+with new code. Other original assets retain their hashes.
 
 ## Deploy separately
 

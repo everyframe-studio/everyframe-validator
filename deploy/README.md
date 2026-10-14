@@ -5,6 +5,11 @@ mounts or signing authorization. It does not touch existing signing services,
 third-party validators or miners. Use a separate host/state from a signing
 validator; never copy its journals into this canary.
 
+For the simpler latest-image installation without `image.txt`, use the root
+README. This advanced managed workflow deliberately pins release digests and
+uses `--missing-accounting wait`, so a burn fallback cannot conceal an unavailable
+accounting feed during a readiness check.
+
 ## Prepare one host per environment
 
 Use Linux amd64, Python 3.10+, Docker Engine and Compose v2 supporting
@@ -22,7 +27,7 @@ account and tightly protect its SSH key.
    ```bash
    sha256sum --check --ignore-missing SHA256SUMS
    cd /opt/everyframe-validator-deploy
-   export VALIDATOR_IMAGE='ghcr.io/everyframe-studios/everyframe-validator@sha256:RELEASE_DIGEST'
+   export VALIDATOR_IMAGE='ghcr.io/everyframe-studio/everyframe-validator@sha256:RELEASE_DIGEST'
    docker compose --project-name everyframe-validator-canary --file compose.yaml pull
    docker compose --project-name everyframe-validator-canary --file compose.yaml run --rm validator init \
      --state-dir /state --network mainnet --validator-hotkey YOUR_PUBLIC_HOTKEY

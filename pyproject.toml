@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "everyframe-validator"
-version = "0.1.0"
+version = "0.2.0"
 description = "Independent EveryFrame SN117 validator and signed epoch publisher"
 readme = "README.md"
 license = "Apache-2.0"
@@ -13,8 +13,8 @@ requires-python = ">=3.10,<3.15"
 dependencies = ["bittensor==11.1.0", "cryptography>=44,<51", "certifi>=2024.7.4"]
 
 [project.urls]
-Repository = "https://github.com/everyframe-studios/everyframe-validator"
-Issues = "https://github.com/everyframe-studios/everyframe-validator/issues"
+Repository = "https://github.com/everyframe-studio/everyframe-validator"
+Issues = "https://github.com/everyframe-studio/everyframe-validator/issues"
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10", "build>=1,<2", "twine>=6,<7"]

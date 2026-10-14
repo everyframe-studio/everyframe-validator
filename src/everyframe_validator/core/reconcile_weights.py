@@ -4,7 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 import sqlite3
-from .chain_scope import scope, add_network, check_database, check_record, read_network
+from .chain_scope import scope, add_network, check_database, check_record, read_network, rpc_options
 from .submission import recover
 
 
@@ -62,7 +62,7 @@ async def reconcile_database(args, domain, db):
     if not rows:
         print(json.dumps({'pending': 0, 'submittedTransaction': False}))
         return
-    async with bt.Client(network=read_network(domain), fallback_endpoints=[], archive_endpoints=[], retry_forever=False) as client:
+    async with bt.Client(network=read_network(domain), **rpc_options(domain), fallback_endpoints=[], archive_endpoints=[], retry_forever=False) as client:
         if await client._substrate.block_hash(0) != domain['genesis']:
             raise ValueError('unexpected_chain_genesis')
         block_hash = await client._substrate.raw.get_chain_finalised_head()

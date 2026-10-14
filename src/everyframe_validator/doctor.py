@@ -1,6 +1,6 @@
 """Read-only readiness checks, also usable while the signing loop owns its lock."""
 
-from .core.chain_scope import scope, check_authorization, read_network
+from .core.chain_scope import scope, check_authorization, read_network, rpc_options
 from .diagnostics import diagnostic
 from .feed import fetch, verify, FeedUnavailable
 from .state import (
@@ -93,6 +93,7 @@ async def doctor(path, offline=False):
 
             async with bt.Client(
                 network=read_network(domain),
+                **rpc_options(domain),
                 fallback_endpoints=[],
                 archive_endpoints=[],
                 retry_forever=False,

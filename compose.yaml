@@ -1,7 +1,8 @@
 services:
   validator:
-    build: .
-    command: ["run", "--state-dir", "/state", "--interval", "60"]
+    image: ${VALIDATOR_IMAGE:-ghcr.io/everyframe-studio/everyframe-validator:latest}
+    pull_policy: ${VALIDATOR_PULL_POLICY:-always}
+    command: ["run", "--state-dir", "/state"]
     restart: unless-stopped
     read_only: true
     cap_drop: ["ALL"]
@@ -10,8 +11,17 @@ services:
       - /tmp:mode=1777,size=256m
     environment:
       BITTENSOR_RUNTIME_CACHE_DIR: /state/runtime-cache
+      EVERYFRAME_RPC_URL: ${EVERYFRAME_RPC_URL:-}
+      EVERYFRAME_RPC_API_KEY: ${EVERYFRAME_RPC_API_KEY:-}
     volumes:
       - validator-state:/state
+    healthcheck:
+      test: ["CMD", "python", "-m", "everyframe_validator.healthcheck", "/state"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 360s
+    stop_grace_period: 310s
     # To sign, explicitly add --submit above after local authorization,
     # and mount only the intended wallet read-only (see README).
     mem_limit: 1g

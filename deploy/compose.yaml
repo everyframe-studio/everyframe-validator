@@ -3,7 +3,7 @@
 services:
   validator:
     image: ${VALIDATOR_IMAGE:?Set a released image digest}
-    command: ["run", "--state-dir", "/state", "--interval", "60"]
+    command: ["run", "--state-dir", "/state", "--interval", "60", "--missing-accounting", "wait"]
     restart: unless-stopped
     read_only: true
     cap_drop: ["ALL"]
@@ -12,6 +12,8 @@ services:
       - /tmp:mode=1777,size=256m
     environment:
       BITTENSOR_RUNTIME_CACHE_DIR: /state/runtime-cache
+      EVERYFRAME_RPC_URL: ${EVERYFRAME_RPC_URL:-}
+      EVERYFRAME_RPC_API_KEY: ${EVERYFRAME_RPC_API_KEY:-}
     volumes:
       - validator-state:/state
     healthcheck:

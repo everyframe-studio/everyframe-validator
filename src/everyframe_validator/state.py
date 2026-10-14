@@ -165,7 +165,7 @@ def status_snapshot(path):
     snapshot["lastRunAgeSeconds"] = (max(0, int(time.time() - last["atMs"] / 1000))
                                      if last and type(last.get("atMs")) is int else None)
     snapshot["state"] = ("blocked" if any(r["state"] in ("unknown", "submitting") for r in rows)
-                         else "pending_reveal" if any(r["state"] == "pending_reveal" for r in rows)
+                         else "pending_reveal" if any(r["state"] in ("pending_reveal", "commit_finalized") for r in rows)
                          else "awaiting_readback" if any(r["state"] == "finalized" for r in rows)
                          else "processing" if busy else "idle")
     return snapshot

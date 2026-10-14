@@ -10,7 +10,7 @@ import time
 import sys
 
 from .reward_policy import POLICY, cap_burn, digest, load_epoch, pool_microusd
-from .chain_scope import scope, add_network, bind_database, check_database, check_record, check_authorization, read_network
+from .chain_scope import scope, add_network, bind_database, check_database, check_record, check_authorization, read_network, rpc_options
 from .submission import prepare
 
 def snapshot(database, end):
@@ -156,7 +156,7 @@ def reserve_run(journal, run_id, record, authorization=None):
                        for (raw,) in journal.execute("SELECT record FROM weight_runs WHERE state!='not_submitted'"))
             if used >= authorization['maxSubmissions']:
                 raise ValueError('mainnet authorization submission budget exhausted')
-        if journal.execute("SELECT 1 FROM weight_runs WHERE state IN ('submitting','unknown','pending_reveal','finalized')").fetchone():
+        if journal.execute("SELECT 1 FROM weight_runs WHERE state IN ('submitting','unknown','pending_reveal','finalized','commit_finalized')").fetchone():
             raise ValueError('unresolved prior weight submission; reconcile before proceeding')
         if record.get('policy') == POLICY:
             for (raw,) in journal.execute("SELECT record FROM weight_runs WHERE state!='not_submitted'"):
@@ -191,7 +191,7 @@ async def main(args):
     bindings = json.loads(Path(args.bindings).read_text())
     if not isinstance(bindings, dict):
         raise ValueError('invalid bindings')
-    async with bt.Client(network=read_network(domain), fallback_endpoints=[], archive_endpoints=[], retry_forever=False,
+    async with bt.Client(network=read_network(domain), **rpc_options(domain), fallback_endpoints=[], archive_endpoints=[], retry_forever=False,
                          policy=bt.Policy(max_fee_tao='0.02', allowed_netuids=[args.netuid])) as client:
         if await client._substrate.block_hash(0) != domain['genesis']:
             raise ValueError('unexpected chain genesis')

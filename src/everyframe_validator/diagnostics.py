@@ -10,6 +10,10 @@ from bittensor.result import ChainError, PolicyError
 
 
 ERRORS = {
+    "invalid_rpc_endpoint": ("invalid_rpc_endpoint", "Use a wss:// RPC URL without credentials, query or fragment; local ws:// loopback is also supported. Use header-auth environment variables for API keys."),
+    "conflicting_rpc_credentials": ("invalid_rpc_credentials", "Set only one of EVERYFRAME_RPC_API_KEY or EVERYFRAME_RPC_API_KEY_FILE."),
+    "invalid_rpc_credentials": ("invalid_rpc_credentials", "RPC authentication requires one nonempty key without whitespace, up to 4096 characters."),
+    "rpc_auth_requires_explicit_wss_endpoint": ("invalid_rpc_endpoint", "Set EVERYFRAME_RPC_URL to the intended wss:// provider endpoint before enabling API-key authentication."),
     "state_directory_must_be_owned_and_mode_700": (
         "unsafe_state_permissions",
         "Use an operator-owned state directory with mode 0700.",

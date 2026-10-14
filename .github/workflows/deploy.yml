@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Published stable release (for example v0.1.0)
+        description: Published stable release (for example v0.2.0)
         required: true
         type: string
       environment:
@@ -36,7 +36,7 @@ jobs:
           gh release download "$TAG" --pattern image.txt --pattern SHA256SUMS --dir release
           (cd release && sha256sum --check --ignore-missing SHA256SUMS)
           IMAGE=$(cat release/image.txt)
-          [[ "$IMAGE" =~ ^ghcr.io/everyframe-studios/everyframe-validator@sha256:[0-9a-f]{64}$ ]]
+          [[ "$IMAGE" =~ ^ghcr.io/everyframe-studio/everyframe-validator@sha256:[0-9a-f]{64}$ ]]
           echo "VALIDATOR_IMAGE=$IMAGE" >> "$GITHUB_ENV"
       - name: Deploy approved digest over pinned SSH
         env:

@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 
-IMAGE = re.compile(r"ghcr\.io/everyframe-studios/everyframe-validator@sha256:[0-9a-f]{64}")
+IMAGE = re.compile(r"ghcr\.io/everyframe-studio/everyframe-validator@sha256:[0-9a-f]{64}")
 PROJECT = "everyframe-validator-canary"
 
 
