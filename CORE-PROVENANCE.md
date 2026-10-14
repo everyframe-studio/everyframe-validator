@@ -1,9 +1,9 @@
 # Reward engine provenance
 
-The `core` package was adapted on 2026-09-21 from this workspace's Everyframe
+The `core` package was adapted on 2026-09-21 from this workspace's EveryFrame
 subnet `verifier/{chain_scope,reward_policy,validator,reconcile_weights}.py`.
 It is bundled, not imported from the sibling repository at runtime. It contains
-Everyframe's existing policy, not copied SayGM implementation code.
+EveryFrame's existing policy, not copied SayGM implementation code.
 
 Preserved behavior: exact cap/burn arithmetic and minimum-positive rounding,
 SDK quantization, ownership/permit checks, chain provenance, pre-sign revalidation,

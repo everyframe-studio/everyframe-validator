@@ -1,4 +1,4 @@
-# Releasing Everyframe Validator
+# Releasing EveryFrame Validator
 
 Releases provide Python wheel/source distributions and a Linux amd64 image at
 `ghcr.io/everyframe-studio/everyframe-validator`. Publishing does not deploy,
@@ -29,7 +29,7 @@ update third-party validators, or authorize signing. PyPI is not configured.
    ```bash
    git switch main
    git pull --ff-only
-   git tag -a v0.2.0 -m "Everyframe Validator v0.2.0"
+   git tag -a v0.2.0 -m "EveryFrame Validator v0.2.0"
    git push origin v0.2.0
    ```
 
