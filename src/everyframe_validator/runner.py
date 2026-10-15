@@ -60,12 +60,14 @@ async def reconcile(root, config):
     return await captured(reconcile_weights.main, args)
 
 
-async def tick(root, submit=False, only_reconcile=False, weight_interval_blocks=0, missing_accounting='wait'):
+async def tick(root, submit=False, only_reconcile=False, weight_interval_blocks=0, missing_accounting='wait',
+               weight_cadence='block', accounting_grace_blocks=25):
     with locked(root) as root:
         try:
             if weight_interval_blocks and not only_reconcile:
                 from .cadence import tick as cadence_tick
-                result = await cadence_tick(root, load_config(root), submit, weight_interval_blocks, missing_accounting)
+                result = await cadence_tick(root, load_config(root), submit, weight_interval_blocks, missing_accounting,
+                                            weight_cadence, accounting_grace_blocks)
             else:
                 result = await _tick(root, submit, only_reconcile)
         except asyncio.CancelledError:
@@ -195,11 +197,13 @@ async def _tick(root, submit=False, only_reconcile=False):
     return result
 
 
-async def run(root, submit=False, once=False, interval=60, weight_interval_blocks=0, missing_accounting='wait'):
+async def run(root, submit=False, once=False, interval=60, weight_interval_blocks=0, missing_accounting='wait',
+              weight_cadence='block', accounting_grace_blocks=25):
     while True:
         try:
             result = await asyncio.wait_for(tick(root, submit=submit, weight_interval_blocks=weight_interval_blocks,
-                                                missing_accounting=missing_accounting), timeout=300)
+                                                missing_accounting=missing_accounting, weight_cadence=weight_cadence,
+                                                accounting_grace_blocks=accounting_grace_blocks), timeout=300)
             failed = result["state"] == "blocked"
         except Exception as exc:
             failed = True

@@ -1,0 +1,46 @@
+# EveryFrame Validator v0.3.0
+
+## New defaults
+
+- Submit each signed accounting report once per accounting epoch, rather than
+  repeatedly refreshing it every 100 blocks.
+- Poll for status and accounting every 60 seconds.
+- Allow 25 blocks of publication grace before a missing-feed burn fallback.
+- If a valid report arrives later in the same epoch, replace the burn fallback
+  once, respecting the 100-block minimum gap and any higher chain rate limit.
+
+Finalized commits may still await automatic reveal while a newer epoch is
+submitted. Uncertain transactions remain blocked until reconciled. Neither a
+finalized commit nor a signed accounting report proves that alpha was received.
+
+## Compatibility and safety
+
+- Existing journals and authorizations remain in use; never delete/reset them to
+  upgrade. The epoch guard also recognizes earlier block-mode submissions.
+- `--weight-cadence block` preserves v0.2.0's repeated refresh mode.
+- `--missing-accounting wait` disables the missing-feed burn fallback.
+- Finney remains the default RPC, with explicit RPC override support.
+- Invalid signatures, conflicting reports and network errors still block; they
+  are never converted into fake zero-work accounting.
+- The signed aggregate feed schema is unchanged. The separately deployed owner
+  finalizer carries eligible late approvals into future accounting reports;
+  this release does not approve jobs or recover already-burned emissions.
+
+## Updating Docker
+
+For the repository's Compose deployment:
+
+```bash
+docker compose pull validator
+docker compose up -d --no-deps validator
+```
+
+Keep the same state volume, wallet mount and explicit signing configuration.
+Use a single signing instance per hotkey. Do not start a second validator while
+the old process is still shutting down. Operators using a pinned image must first
+select `ghcr.io/everyframe-studio/everyframe-validator:v0.3.0` or its release digest.
+
+The stable `latest` tag is updated after successful publication; it does not
+automatically replace running containers. This release does not change the live
+owner validator or authorize third-party signing. Linux amd64 image; wheel and
+source archive included. No PyPI publication.

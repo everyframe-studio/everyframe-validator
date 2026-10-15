@@ -18,7 +18,7 @@ def test_finney_default_and_release_defaults():
     assert read_network(scope('finney', 117)) == 'finney'
     assert read_network(scope('test', 566)) == 'test'
     args = parser().parse_args(['run', '--state-dir', '/state'])
-    assert (args.interval, args.weight_interval_blocks, args.missing_accounting) == (15, 100, 'burn')
+    assert (args.interval, args.weight_interval_blocks, args.missing_accounting) == (60, 100, 'burn')
 
 
 @pytest.mark.parametrize('url', ['https://example.org', 'ws://example.org',

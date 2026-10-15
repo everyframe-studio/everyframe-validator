@@ -139,3 +139,87 @@ def test_signed_accounting_remains_preferred(paced, payload, signing, chain, mon
     assert result['accountingSource'] == 'signed_epoch'
     assert result['allBurn'] is False
     assert journal_rows(paced[0])[0]['record']['payloadHash']
+
+
+def epoch_run(paced, submit=True):
+    return asyncio.run(runner.tick(paced[0], submit=submit, weight_interval_blocks=100,
+                                  missing_accounting='burn', weight_cadence='epoch'))
+
+
+def test_epoch_signed_report_is_submitted_only_once(paced, payload, signing, chain, monkeypatch):
+    from everyframe_validator.publish import sign
+    monkeypatch.setattr(cadence, 'fetch', lambda *args: json.dumps(sign(payload, signing[0])).encode())
+    assert epoch_run(paced)['state'] == 'commit_finalized'
+    paced[2]['block'] = 4200
+    assert epoch_run(paced)['reason'] == 'epoch_cadence'
+    assert chain.execute.await_count == 1
+    # Read-only verification remains possible after a submission.
+    assert epoch_run(paced, submit=False)['state'] == 'dry_run'
+
+
+def test_epoch_waits_for_publication_then_burns_only_once(paced, chain):
+    paced[2]['block'] = 3980
+    assert epoch_run(paced)['reason'] == 'accounting_publication_grace'
+    chain.execute.assert_not_called()
+    paced[2]['block'] = 4000
+    assert epoch_run(paced)['accountingSource'] == 'missing_epoch_burn'
+    paced[2]['block'] = 4200
+    assert epoch_run(paced)['reason'] == 'epoch_cadence'
+    assert chain.execute.await_count == 1
+
+
+def test_late_signed_report_can_replace_burn_once(paced, payload, signing, chain, monkeypatch):
+    from everyframe_validator.publish import sign
+    assert epoch_run(paced)['state'] == 'commit_finalized'
+    paced[2]['block'] = 4100
+    monkeypatch.setattr(cadence, 'fetch', lambda *args: json.dumps(sign(payload, signing[0])).encode())
+    data = {'success': True, 'block_hash': '0x'+'c'*64, 'extrinsic_id': '4100-0'}
+    chain.execute.return_value = SimpleNamespace(**data, to_dict=lambda: data)
+    assert epoch_run(paced)['accountingSource'] == 'signed_epoch'
+    paced[2]['block'] = 4200
+    assert epoch_run(paced)['reason'] == 'epoch_cadence'
+    assert chain.execute.await_count == 2
+
+
+def test_next_epoch_does_not_wait_for_previous_reveal(paced, chain):
+    epoch_run(paced)
+    paced[2].update(block=4360, epoch=11, pending=[{}])
+    data = {'success': True, 'block_hash': '0x'+'c'*64, 'extrinsic_id': '4360-0'}
+    chain.execute.return_value = SimpleNamespace(**data, to_dict=lambda: data)
+    assert epoch_run(paced)['state'] == 'commit_finalized'
+    assert chain.execute.await_count == 2
+
+
+def test_atomic_reservation_blocks_duplicate_epoch_even_after_cooldown(paced, chain):
+    import sqlite3
+    epoch_run(paced)
+    prior = journal_rows(paced[0])[0]['record']
+    record = {**prior, 'block': prior['block'] + 100}
+    with sqlite3.connect(paced[0]/'journal.db') as db:
+        with pytest.raises(ValueError, match='epoch already submitted'):
+            cadence.reserve(db, 'duplicate', record, {'id': prior['authorizationId'], 'maxSubmissions': 20})
+
+
+def test_cli_defaults_epoch_and_one_minute():
+    from everyframe_validator.cli import parser
+    args = parser().parse_args(['run', '--state-dir', '/unused'])
+    assert args.weight_cadence == 'epoch'
+    assert args.interval == 60
+    assert args.weight_interval_blocks == 100
+
+
+def test_epoch_mode_honors_existing_block_mode_submission(paced, payload, signing, chain, monkeypatch):
+    from everyframe_validator.publish import sign
+    monkeypatch.setattr(cadence, 'fetch', lambda *args: json.dumps(sign(payload, signing[0])).encode())
+    run(paced)
+    paced[2]['block'] = 4200
+    assert epoch_run(paced)['reason'] == 'epoch_cadence'
+    assert chain.execute.await_count == 1
+
+
+def test_uncertain_epoch_submission_cannot_be_repeated(paced, chain):
+    chain.execute.side_effect = TimeoutError()
+    with pytest.raises(TimeoutError): epoch_run(paced)
+    paced[2]['block'] = 4200
+    assert epoch_run(paced)['reason'] == 'uncertain_submission'
+    assert chain.execute.await_count == 1
