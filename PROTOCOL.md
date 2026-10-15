@@ -28,12 +28,25 @@ Scores contain `minerId`, integer `earningsMicrousd`, integer `surchargeMicrousd
 and integer `jobs`. Price provenance permits only `source`, `observedAt`, `taoUsd`,
 and `candleHash`. The publisher uses explicit allowlists at each level.
 
+Scores represent eligible reviewed work recognized in this report; completion may
+predate the window when review was delayed. The owner-side private sealed proof
+journal prevents repeated recognition of a job or attempt. Pending reviews are
+deferred, not counted as approved, and do not block unrelated finalized work.
+Historical reports remain immutable; late work is recognized in a future report,
+not by asking validators to submit stale reports. Private proof identifiers and
+review status are not added to the public wire format.
+
 Accounting is authenticated, not independently reconstructed. Validators recompute
 the value-based cap/burn allocation locally with exact rational arithmetic, then
 use the pinned Bittensor SDK's normalization. Current chain constraints may force a
 defer; the validator never invents work or changes chain settings to fit the vector.
 
 Epoch numbers come from finalized chain head divided by `tempo+1`, minus one.
-404 means wait. The complete payload hash (including bindings) is stored immutably;
+404 means missing accounting, not an authenticated zero-work report. `run` defaults
+to a burn-only safety plan after publication grace; `--missing-accounting wait`
+disables that fallback. Invalid signatures or network errors never mean burn.
+The default cadence submits each signed report once; one prior missing-feed burn
+may be replaced by its signed report in the same epoch after the rate-limit gap.
+The complete payload hash (including bindings) is stored immutably;
 even another valid signature cannot revise an already accepted epoch locally.
 No discovery listing, latest pointer, S3 login, or owner SSH is needed.

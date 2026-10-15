@@ -27,8 +27,9 @@ def test_stale_status():
     assert not ready({"state": "dry_run", "atMs": 500_000}, now=1000, started_at=1)
 
 
-def test_cadence_wait_is_healthy_only_with_recent_block_evidence():
-    status = {'state': 'waiting', 'reason': 'block_cadence', 'atMs': 999_000,
+@pytest.mark.parametrize('reason', ['block_cadence', 'epoch_cadence', 'accounting_publication_grace'])
+def test_cadence_wait_is_healthy_only_with_recent_block_evidence(reason):
+    status = {'state': 'waiting', 'reason': reason, 'atMs': 999_000,
               'finalizedBlock': 100, 'nextEligibleBlock': 200}
     assert ready(status, now=1000, started_at=900)
     assert not ready({**status, 'nextEligibleBlock': 99}, now=1000, started_at=900)

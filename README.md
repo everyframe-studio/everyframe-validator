@@ -7,12 +7,14 @@ provider API keys, GPU, Phala account, or miner TEE is required.
 
 ## Release status
 
-Version 0.2.0 provides a Linux amd64 image at
+Version 0.3.0 provides a Linux amd64 image at
 `ghcr.io/everyframe-studio/everyframe-validator:latest` and versioned tags.
 It is **not published to PyPI**. Check [Releases](https://github.com/everyframe-studio/everyframe-validator/releases)
 for published versions; see [RELEASING.md](RELEASING.md).
-The defaults are Finney RPC, a 100-block minimum submission gap, and an explicit
-burn-only plan when the newest accounting epoch is absent (HTTP 404).
+The defaults are Finney RPC, one signed accounting update per epoch,
+60-second polling, a 100-block minimum submission gap, and a 25-block publication
+grace before a burn-only plan when the newest epoch is absent (HTTP 404).
+These cadence changes are new in v0.3.0; v0.2.0 used repeated block-paced updates.
 Invalid signatures and network errors still block. No fake zero-work accounting
 is created. Installation never registers a wallet or authorizes signing.
 
@@ -76,7 +78,7 @@ docker compose up -d
 ```
 
 Use either the standalone Docker commands or Compose, not both with the same hotkey.
-Pin `:v0.2.0` or an immutable `@sha256:...` for reproducibility. The separate
+Pin `:v0.3.0` or an immutable `@sha256:...` for reproducibility. The separate
 [managed canary workflow](deploy/README.md) still requires immutable release
 digests; `image.txt` remains available for that advanced workflow only.
 
@@ -206,25 +208,33 @@ only the key, be owned by the validator user (container UID 10001), have mode
 `EVERYFRAME_RPC_API_KEY_FILE` environment entry when using that option.
 There is no silent fallback that could send a key to another endpoint.
 
-### 100-block cadence and missing-accounting burn
+### Once-per-epoch weights and missing-accounting burn
 
 These are the defaults, shown explicitly:
 
 ```bash
 everyframe-validator run --state-dir ./state/mainnet117 --submit \
-  --interval 15 --weight-interval-blocks 100 --missing-accounting burn
+  --interval 60 --weight-cadence epoch --weight-interval-blocks 100 \
+  --accounting-grace-blocks 25 --missing-accounting burn
 ```
 
-The interval is a **minimum finalized-block gap**, not an exact wall-clock timer.
-The chain's rate limit takes precedence if higher. Valid signed accounting for
-the latest closed epoch is reused until a newer epoch closes; it is a weight
-refresh, not another payable or a claim of additional work. Accounting epochs
-themselves are not shortened. With `burn`, only an absent latest epoch
+Status polling and weight submission are separate. `--interval` is the pause in
+seconds between checks; `--weight-interval-blocks` is a **minimum finalized-block
+gap**. The chain's rate limit takes precedence if higher. By default a signed
+report is submitted once per fixed accounting epoch, persisted across restarts.
+This accounting window is not a promise of the exact Yuma emission/reveal time.
+
+A missing feed gets 25 blocks of publication grace (bounded to the epoch length).
+With `burn`, only an absent latest epoch
 (HTTP 404) produces a full-weight allocation to the verified subnet-owner burn
 UID, labelled `missing_epoch_burn`. It never creates a fake signed/zero-work
 artifact. Signature failures, conflicting accounting, timeouts, and other HTTP
 failures still block submission. Set `--missing-accounting wait` to disable
-the burn fallback. `doctor` continues to report an absent feed; that describes
+the burn fallback. A later signed report may replace that epoch's burn **once**,
+after the minimum block gap: an early safety fallback must not suppress valid
+accounting that becomes available in the same epoch. If that report arrives only
+after the epoch has passed, validators do not replay it automatically. `doctor`
+continues to report an absent feed; that describes
 accounting availability even when the run loop is configured to burn.
 
 Finalized commits may queue while earlier commits await the chain's reveal
@@ -233,7 +243,8 @@ does not individually prove those reveals. Chain pending-commit counts are
 checked, and uncertain broadcasts still block all further submissions until
 exact transaction recovery succeeds. The existing authorization expiry and
 submission-count cap remain in force; faster cadence consumes that cap sooner.
-No chain hyperparameters are changed. To use the original epoch/reveal gating,
+No chain hyperparameters are changed. `--weight-cadence block` retains v0.2.0's
+repeated 100-block refreshes. To use the original epoch/reveal gating,
 set `--weight-interval-blocks 0 --missing-accounting wait`. Returning to that
 mode with cadence commits still unverified blocks new signing.
 
@@ -319,8 +330,25 @@ The public path must map to the matching network's output directory. Return 404
 for unpublished epochs; never rewrite it to a dashboard HTML response. Do not
 expose `/control`, databases, or key files. Invoke the publisher after successful
 finalization; publish failures must alert the operator. File creation is atomic and
-immutable: re-publishing identical content is safe; revising it fails. A malformed,
-unreviewed or missing epoch must stop publication, not generate an empty epoch.
+immutable: re-publishing identical content is safe; revising it fails. Malformed
+accounting must stop publication, not generate an empty epoch.
+
+The updated owner finalizer recognizes approved, eligible work once using its
+private sealed-epoch provenance as the deduplication ledger. Review-held work is
+deferred, without blocking unrelated approved work. An approval made at or after
+the close belongs to a later report. Older approved work never recognized in a
+sealed report is carried forward; previously recognized jobs/attempts cannot be
+counted twice, including across upgrades and restarts. No job is auto-approved,
+and disputed or ineligible work is not made eligible by this change.
+
+Public scores describe **work recognized in that report**, not necessarily jobs
+completed during that same wall-clock window. The signed aggregate format is
+unchanged; original timestamps and job proofs stay private. Validators still
+authenticate owner accounting rather than independently reviewing each job.
+Recognition is not a guaranteed USD payment or proof of alpha received; emission
+caps, consensus, and commit/reveal still apply. Already-burned emissions are not
+recoverable. Monitor finalization and actual publication separately: a sealed
+report is not evidence that validators fetched or submitted it.
 
 No cloud credentials are needed by readers. Validators pin the signing key, bound
 response size, disallow redirects/proxies/private IP destinations, require the exact

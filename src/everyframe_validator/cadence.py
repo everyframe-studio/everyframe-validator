@@ -1,4 +1,4 @@
-"""Opt-in block-paced weights. Finalized commits may overlap their reveal delay.
+"""Epoch or block-paced weights. Finalized commits may overlap their reveal delay.
 
 An absent (404) accounting epoch may burn only with explicit operator opt-in.
 Invalid signatures, conflicting accounting, network errors and uncertain
@@ -103,6 +103,10 @@ def reserve(db, run_id, record, consent):
         for state, prior, result in rows:
             if state == 'not_submitted':
                 continue
+            if (record.get('cadence') == 'accounting-epoch-v1' and prior.get('epoch') == record['epoch']
+                    and (prior.get('accountingSource', 'signed_epoch') == 'signed_epoch'
+                         or record['accountingSource'] == 'missing_epoch_burn')):
+                raise ValueError('accounting epoch already submitted')
             included = result.get('extrinsic_id', '')
             last = max(prior['block'], int(included.split('-')[0])
                        if re.fullmatch(r'\d+-\d+', included) else prior['block'])
@@ -116,10 +120,13 @@ def reserve(db, run_id, record, consent):
         raise
 
 
-async def tick(root, config, submit, interval, missing):
+async def tick(root, config, submit, interval, missing, weight_cadence='block', accounting_grace_blocks=25):
     import bittensor as bt
     if type(interval) is not int or not 100 <= interval <= 10000 or missing not in ('wait', 'burn'):
         raise ValueError('invalid block cadence configuration')
+    if (weight_cadence not in ('epoch', 'block') or type(accounting_grace_blocks) is not int
+            or not 0 <= accounting_grace_blocks <= 1000):
+        raise ValueError('invalid epoch cadence configuration')
     domain = scope(config['network'], config['netuid'])
     consent = None
     if submit:
@@ -151,11 +158,27 @@ async def tick(root, config, submit, interval, missing):
         epoch, payload = view['epoch'], None
         if epoch < 0:
             return {**common, 'state': 'waiting', 'reason': 'no_closed_epoch'}
+        period = view['params']['tempo'] + 1
+        prior = {r['record'].get('accountingSource', 'signed_epoch') for r in rows
+                 if r['state'] != 'not_submitted' and r['record'].get('epoch') == epoch}
+        epoch_wait = {**common, 'state': 'waiting', 'reason': 'epoch_cadence', 'epoch': epoch,
+                      'nextEligibleBlock': max(next_block, (epoch + 2) * period)}
+        if submit and weight_cadence == 'epoch' and 'signed_epoch' in prior:
+            return {**epoch_wait, 'accountingSource': 'signed_epoch'}
         try:
             raw = await asyncio.to_thread(fetch, config['feed'], epoch)
         except FeedUnavailable:
             if missing != 'burn':
                 return {**common, 'state': 'waiting', 'reason': 'newest_epoch_not_published', 'epoch': epoch}
+            if weight_cadence == 'epoch':
+                if submit and 'missing_epoch_burn' in prior:
+                    # Still fetch on every poll: a later signed report may replace
+                    # this safety fallback once, subject to the chain cooldown.
+                    return {**epoch_wait, 'accountingSource': 'missing_epoch_burn'}
+                grace_end = (epoch + 1) * period + min(accounting_grace_blocks, period - 1)
+                if view['block'] < grace_end:
+                    return {**common, 'state': 'waiting', 'reason': 'accounting_publication_grace',
+                            'epoch': epoch, 'nextEligibleBlock': max(next_block, grace_end)}
         else:
             payload = verify(raw, config['publicKey'], domain, epoch)
         if payload:
@@ -181,7 +204,7 @@ async def tick(root, config, submit, interval, missing):
             return {**common, 'state': 'deferred', 'reason': 'chain_weight_rate_limit'}
         record = {**domain, 'block': fresh['block'], 'validatorHotkey': config['validatorHotkey'],
                   'plan': plan, 'versionKey': config['versionKey'], 'epoch': epoch, 'openEpoch': epoch + 1,
-                  'policy': plan['policy'], 'cadence': 'block-paced-v1',
+                  'policy': plan['policy'], 'cadence': 'accounting-epoch-v1' if weight_cadence == 'epoch' else 'block-paced-v1',
                   'intervalBlocks': max(interval, fresh['params']['weights_rate_limit']),
                   'commitReveal': fresh['params']['commit_reveal_weights_enabled'],
                   'accountingSource': 'signed_epoch' if payload else 'missing_epoch_burn',

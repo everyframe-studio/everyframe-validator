@@ -130,6 +130,8 @@ jobs:
               everyframe-validator init --state-dir /state/profile --validator-hotkey 5G9K4zDrdcAE8F1MaaZNxLGXuhMApR5ENZGTs2wAEhiptHEf
               everyframe-validator doctor --state-dir /state/profile --offline
               everyframe-validator run --help | grep -- --rpc-url
+              everyframe-validator run --help | grep -- --weight-cadence
+              everyframe-validator run --help | grep -- --accounting-grace-blocks
               test ! -e /state/profile/authorization.json
             '
           if [ "$PUSH_IMAGE" = true ]; then docker push "$IMAGE:$TAG"; fi

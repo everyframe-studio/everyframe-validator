@@ -44,11 +44,15 @@ def parser():
     commands["run"].add_argument("--once", action="store_true")
     for name in ('run', 'doctor', 'reconcile'):
         commands[name].add_argument('--rpc-url', help='Override Finney/test RPC with wss:// URL; or set EVERYFRAME_RPC_URL. No credentials in URLs.')
-    commands["run"].add_argument("--interval", type=int, default=15)
+    commands["run"].add_argument("--interval", type=int, default=60, help="Seconds between status/check iterations (default 60)")
+    commands["run"].add_argument("--weight-cadence", choices=("epoch", "block"), default="epoch",
+                                help="Default: one signed accounting update per epoch; block repeats after the minimum gap")
+    commands["run"].add_argument("--accounting-grace-blocks", type=int, default=25,
+                                help="In epoch mode, wait this many blocks after close before a missing-feed burn (default 25)")
     commands["run"].add_argument("--weight-interval-blocks", type=int, default=100,
                                 help="Minimum blocks between finalized submissions (default 100); 0 retains legacy epoch/reveal gating")
     commands["run"].add_argument("--missing-accounting", choices=("wait", "burn"), default="burn",
-                                help="In block-paced mode, burn on absent latest epoch (HTTP 404) only; invalid data still blocks")
+                                help="Burn on absent latest epoch (HTTP 404) only, after epoch-mode grace; invalid data still blocks")
     commands["doctor"].add_argument("--offline", action="store_true", help="Skip RPC and feed checks")
     commands["authorize"].add_argument("--days", type=int, default=30)
     commands["authorize"].add_argument("--max-submissions", type=int, default=1000)
@@ -111,11 +115,14 @@ def main():
                 p.error("interval must be 15..3600 seconds")
             if args.weight_interval_blocks != 0 and not 100 <= args.weight_interval_blocks <= 10000:
                 p.error("weight-interval-blocks must be 0 or 100..10000")
+            if not 0 <= args.accounting_grace_blocks <= 1000:
+                p.error("accounting-grace-blocks must be 0..1000")
             if args.missing_accounting == 'burn' and not args.weight_interval_blocks:
                 p.error("legacy cadence requires --missing-accounting wait")
             raise SystemExit(asyncio.run(run(root, submit=args.submit, once=args.once, interval=args.interval,
                                             weight_interval_blocks=args.weight_interval_blocks,
-                                            missing_accounting=args.missing_accounting)))
+                                            missing_accounting=args.missing_accounting, weight_cadence=args.weight_cadence,
+                                            accounting_grace_blocks=args.accounting_grace_blocks)))
         print(json.dumps(result))
         if args.command == "doctor" and not result["ok"]:
             raise SystemExit(2)
