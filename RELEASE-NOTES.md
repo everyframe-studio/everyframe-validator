@@ -1,4 +1,16 @@
-# EveryFrame Validator v0.3.0
+# Unreleased — chain-epoch reward scheduling
+
+- Replace repeated/block and fixed-accounting-window signing with one allocation
+  per actual finalized subnet epoch. Legacy CLI cadence flags map to the safe mode.
+- Check chain timing, identity, cooldown and reveal-round separation before
+  signing and again before broadcast; retain zero-fee policy and consent limits.
+- Persist an accounting cursor so late reports are queued, not discarded or
+  replaced by burn in the same reveal window. No historical reward replay.
+- Record exact-commit reveal and subsequent mechanism-step observations separately
+  from alpha settlement. Overwritten/ambiguous allocations require review.
+- Preserve all prior submission journals and already queued commitments.
+
+# EveryFrame Validator v0.3.0 (historical release)
 
 ## New defaults
 

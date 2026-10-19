@@ -41,12 +41,16 @@ the value-based cap/burn allocation locally with exact rational arithmetic, then
 use the pinned Bittensor SDK's normalization. Current chain constraints may force a
 defer; the validator never invents work or changes chain settings to fit the vector.
 
-Epoch numbers come from finalized chain head divided by `tempo+1`, minus one.
+Accounting epoch numbers come from finalized chain head divided by `tempo+1`, minus one.
+Scheduling slots instead use finalized `SubnetEpochIndex` and `LastEpochBlock`.
 404 means missing accounting, not an authenticated zero-work report. `run` defaults
 to a burn-only safety plan after publication grace; `--missing-accounting wait`
 disables that fallback. Invalid signatures or network errors never mean burn.
-The default cadence submits each signed report once; one prior missing-feed burn
-may be replaced by its signed report in the same epoch after the rate-limit gap.
+The scheduler reserves at most one allocation per actual chain epoch and consumes
+each signed report once, in cursor order. A missing-feed burn does not consume
+that report; a later report must use a different chain slot. Already submitted
+historical reports are not replayed. Finalized reveal and mechanism-step evidence
+are stored separately from transaction finality and do not prove alpha settlement.
 The complete payload hash (including bindings) is stored immutably;
 even another valid signature cannot revise an already accepted epoch locally.
 No discovery listing, latest pointer, S3 login, or owner SSH is needed.

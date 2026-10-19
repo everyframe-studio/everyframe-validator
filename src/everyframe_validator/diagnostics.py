@@ -10,6 +10,12 @@ from bittensor.result import ChainError, PolicyError
 
 
 ERRORS = {
+    'chain_epoch_schedule_unavailable': ('chain_schedule_unavailable', 'Cannot verify the finalized subnet epoch schedule. Check RPC/runtime compatibility; no weights were submitted.'),
+    'timelock_schedule_unavailable': ('timelock_schedule_unavailable', 'The SDK did not supply a verifiable future reveal schedule. No transaction was broadcast.'),
+    'timelock_schedule_not_future': ('timelock_schedule_not_future', 'The planned reveal time is already past. Check the chain and SDK schedule; no transaction was broadcast.'),
+    'timelock_reveal_window_collision': ('reveal_window_collision', 'The planned reveal overlaps an existing allocation window. Waiting for a distinct chain epoch; no transaction was broadcast.'),
+    'chain_changed_before_broadcast': ('chain_changed_before_broadcast', 'The chain epoch, identity or pending commitments changed during preparation. No transaction was broadcast; the next check will re-evaluate.'),
+    'invalid_reward_schedule_cursor': ('invalid_reward_schedule_cursor', 'The durable accounting cursor is invalid. Preserve the journal and investigate; do not reset state to replay rewards.'),
     "invalid_rpc_endpoint": ("invalid_rpc_endpoint", "Use a wss:// RPC URL without credentials, query or fragment; local ws:// loopback is also supported. Use header-auth environment variables for API keys."),
     "conflicting_rpc_credentials": ("invalid_rpc_credentials", "Set only one of EVERYFRAME_RPC_API_KEY or EVERYFRAME_RPC_API_KEY_FILE."),
     "invalid_rpc_credentials": ("invalid_rpc_credentials", "RPC authentication requires one nonempty key without whitespace, up to 4096 characters."),

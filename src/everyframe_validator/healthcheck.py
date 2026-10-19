@@ -20,7 +20,9 @@ def ready(status, *, now, started_at, max_age=420):
             "dry_run", "already_submitted", "pending_reveal", "awaiting_readback",
             "finalized", "commit_finalized",
         } or (status.get('state') == 'waiting' and status.get('reason') in {
-                  'block_cadence', 'epoch_cadence', 'accounting_publication_grace'}
+                  'block_cadence', 'epoch_cadence', 'accounting_publication_grace',
+                  'chain_epoch_already_committed', 'waiting_for_chain_epoch_window',
+                  'pending_epoch_transition'}
               and type(status.get('finalizedBlock')) is int
               and type(status.get('nextEligibleBlock')) is int
               and status['nextEligibleBlock'] > status['finalizedBlock']))
