@@ -13,6 +13,8 @@ from .chain_scope import scope, check_record, bind_database
 
 POLICY = 'epoch-value-cap-burn-v2'
 MAX_WEIGHT = 65535
+MINER_SHARE_POLICY = 'fixed-41-percent-v1'
+MINER_SHARE_TEXT = '0.41'
 MINER_SHARE = Fraction(41, 100)
 
 
@@ -181,9 +183,14 @@ def validate_artifact(a):
                 or a.get('unusedAllocation') not in ('Recycle', 'Burn')
                 or a.get('accountingWindow') != 'fixed-tempo-plus-one-v1'):
             raise ValueError('missing mainnet emission policy evidence')
-        expected = Fraction(65535-(cut if a['ownerCutEnabled'] else 0), 2*65535)
+        # Preserve legacy signed accounting; new reports explicitly pin 41%.
+        share_policy = a.get('minerSharePolicy')
+        if 'minerSharePolicy' in a and share_policy != MINER_SHARE_POLICY:
+            raise ValueError('unsupported miner share policy')
+        expected = (MINER_SHARE if share_policy == MINER_SHARE_POLICY else
+                    Fraction(65535-(cut if a['ownerCutEnabled'] else 0), 2*65535))
         if positive(a['minerShare']) != expected:
-            raise ValueError('mainnet miner share does not match chain policy')
+            raise ValueError('mainnet miner share does not match accounting policy')
     window = a['window']
     if window['policy'] != POLICY or window['version'] != 2 or not 0 <= window['start'] < window['end'] <= window['finalizedAt']:
         raise ValueError('invalid accounting window')

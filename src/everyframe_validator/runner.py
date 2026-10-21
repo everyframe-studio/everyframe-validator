@@ -64,7 +64,15 @@ async def tick(root, submit=False, only_reconcile=False, weight_interval_blocks=
                weight_cadence='block', accounting_grace_blocks=25):
     with locked(root) as root:
         try:
-            if weight_interval_blocks and not only_reconcile:
+            if only_reconcile and any(r['record'].get('cadence') == 'chain-epoch-v2' for r in journal_rows(root)):
+                from .scheduled import reconcile_only
+                result = await reconcile_only(root, load_config(root))
+            elif weight_cadence == 'chain' and not only_reconcile:
+                from .scheduled import tick as scheduled_tick
+                result = await scheduled_tick(root, load_config(root), submit,
+                                              weight_interval_blocks or 100, missing_accounting,
+                                              accounting_grace_blocks)
+            elif weight_interval_blocks and not only_reconcile:
                 from .cadence import tick as cadence_tick
                 result = await cadence_tick(root, load_config(root), submit, weight_interval_blocks, missing_accounting,
                                             weight_cadence, accounting_grace_blocks)

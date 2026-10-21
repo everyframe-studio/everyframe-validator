@@ -76,7 +76,8 @@ def validate_payload(payload, domain, epoch):
     if payload["schema"] != SCHEMA or not re.fullmatch(r"[a-f0-9]{64}", payload["sourceHash"]):
         raise ValueError("invalid_artifact_schema")
     a = payload["artifact"]
-    exact_keys(a, ARTIFACT_KEYS | (MAINNET_KEYS if domain["network"] == "finney" else set()))
+    policy_keys = {"minerSharePolicy"} if domain["network"] == "finney" and "minerSharePolicy" in a else set()
+    exact_keys(a, ARTIFACT_KEYS | (MAINNET_KEYS if domain["network"] == "finney" else set()) | policy_keys)
     check_record(a, domain)
     if type(epoch) is not int or a["epoch"] != epoch:
         raise ValueError("wrong_epoch")

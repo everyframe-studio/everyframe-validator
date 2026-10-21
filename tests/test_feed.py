@@ -69,6 +69,38 @@ def test_mainnet_projection_has_chain_derived_share():
         validate_payload(p, scope("finney"), 10)
 
 
+@pytest.mark.parametrize("cut,enabled", [(11796, True), (0, False), (30000, True)])
+def test_fixed_41_percent_signed_round_trip(cut, enabled, signing):
+    from fractions import Fraction
+    from everyframe_validator.core.reward_policy import pool_microusd
+    a = artifact("finney")
+    a.update(minerShare="0.41", minerSharePolicy="fixed-41-percent-v1",
+             ownerCutU16=cut, ownerCutEnabled=enabled)
+    p = project(a, {"a": hot(2), "b": hot(3)})
+    checked = verify(json.dumps(sign(p, signing[0])), signing[1], scope("finney"), 10)
+    assert checked["artifact"]["minerSharePolicy"] == "fixed-41-percent-v1"
+    assert pool_microusd(checked["artifact"]) == Fraction(100_000_000)
+    # Existing reports keep their signed values, not the new fixed denominator.
+    legacy = artifact("finney")
+    assert pool_microusd(legacy) != pool_microusd(checked["artifact"])
+
+
+@pytest.mark.parametrize("changes", [
+    {"minerShare": "0.42"},
+    {"minerShare": "53739/131070"},
+    {"minerSharePolicy": "unknown"},
+    {"minerSharePolicy": None},
+    {"ownerCutU16": True},
+    {"ownerCutEnabled": "yes"},
+])
+def test_fixed_share_rejects_inconsistent_or_unknown_policy(changes):
+    a = artifact("finney")
+    a.update(minerShare="0.41", minerSharePolicy="fixed-41-percent-v1")
+    a.update(changes)
+    with pytest.raises(ValueError):
+        project(a, {"a": hot(2), "b": hot(3)})
+
+
 @pytest.mark.parametrize("url", ["http://example.com/", "https://a:b@example.com/", "https://example.com:444/", "https://example.com/?key=x", "https://example.com/#x", "https://example.com/not-directory"])
 def test_unsafe_feed_urls(url):
     with pytest.raises(ValueError): validate_url(url)

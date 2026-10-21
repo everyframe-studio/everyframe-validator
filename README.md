@@ -7,14 +7,15 @@ provider API keys, GPU, Phala account, or miner TEE is required.
 
 ## Release status
 
-Version 0.3.0 provides a Linux amd64 image at
+Version 0.4.0 provides a Linux amd64 image at
 `ghcr.io/everyframe-studio/everyframe-validator:latest` and versioned tags.
 It is **not published to PyPI**. Check [Releases](https://github.com/everyframe-studio/everyframe-validator/releases)
 for published versions; see [RELEASING.md](RELEASING.md).
-The defaults are Finney RPC, one signed accounting update per epoch,
-60-second polling, a 100-block minimum submission gap, and a 25-block publication
-grace before a burn-only plan when the newest epoch is absent (HTTP 404).
-These cadence changes are new in v0.3.0; v0.2.0 used repeated block-paced updates.
+Version 0.4.0 includes chain-epoch scheduling and sparse accounting recovery.
+It uses Finney RPC, at most one allocation per actual chain epoch,
+60-second polling, a 100-block minimum submission gap, and a durable signed-report
+queue. v0.3.0's accounting-epoch cadence and v0.2.0's block refresh are superseded
+in v0.4.0; older images do not include these fixes.
 Invalid signatures and network errors still block. No fake zero-work accounting
 is created. Installation never registers a wallet or authorizes signing.
 
@@ -78,7 +79,7 @@ docker compose up -d
 ```
 
 Use either the standalone Docker commands or Compose, not both with the same hotkey.
-Pin `:v0.3.0` or an immutable `@sha256:...` for reproducibility. The separate
+Pin `:v0.4.0` or an immutable `@sha256:...` for reproducibility. The separate
 [managed canary workflow](deploy/README.md) still requires immutable release
 digests; `image.txt` remains available for that advanced workflow only.
 
@@ -165,11 +166,11 @@ everyframe-validator run --state-dir ./state/mainnet117 --submit
 This is **your local consent**, not subnet-owner approval. Consent expires and is
 bounded by submission count; renewing it does not clear pending submissions or
 allow replaying old epochs. Without `--submit`, even an authorized profile stays
-read-only with respect to the chain. The default block-paced mode has a zero-fee
-policy; a nonzero/unavailable fee estimate blocks signing. The legacy epoch mode
-retains its 0.02 TAO ceiling. Neither is an income guarantee.
-Keep the process running to recover uncertain transactions. Only the latest
-closed accounting epoch is eligible, never backlog replay.
+read-only with respect to the chain. The default chain-epoch scheduler has a zero-fee
+policy; a nonzero/unavailable fee estimate blocks signing. Legacy cadence flags
+also use the safe chain-epoch scheduler. This is not an income guarantee.
+Keep the process running to recover uncertain transactions. Previously adopted,
+unsubmitted signed reports remain queued; already-submitted reports are not replayed.
 
 ## Operations
 
@@ -208,45 +209,84 @@ only the key, be owned by the validator user (container UID 10001), have mode
 `EVERYFRAME_RPC_API_KEY_FILE` environment entry when using that option.
 There is no silent fallback that could send a key to another endpoint.
 
-### Once-per-epoch weights and missing-accounting burn
+### Chain-epoch scheduling and missing-accounting burn
 
 These are the defaults, shown explicitly:
 
 ```bash
 everyframe-validator run --state-dir ./state/mainnet117 --submit \
-  --interval 60 --weight-cadence epoch --weight-interval-blocks 100 \
+  --interval 60 --weight-cadence chain --weight-interval-blocks 100 \
   --accounting-grace-blocks 25 --missing-accounting burn
 ```
 
 Status polling and weight submission are separate. `--interval` is the pause in
 seconds between checks; `--weight-interval-blocks` is a **minimum finalized-block
-gap**. The chain's rate limit takes precedence if higher. By default a signed
-report is submitted once per fixed accounting epoch, persisted across restarts.
-This accounting window is not a promise of the exact Yuma emission/reveal time.
+gap**. The chain's rate limit takes precedence if higher. Signing is limited to
+one early slot per finalized `SubnetEpochIndex` / `LastEpochBlock`, not the
+fixed `tempo+1` accounting window. The schedule is rechecked before broadcast.
+Distinct chain epochs and sufficiently separated timelock rounds prevent a
+reward allocation from being overwritten by a same-window burn. Unsupported
+short tempos or rate limits block instead of weakening these safeguards.
 
 A missing feed gets 25 blocks of publication grace (bounded to the epoch length).
-With `burn`, only an absent latest epoch
-(HTTP 404) produces a full-weight allocation to the verified subnet-owner burn
-UID, labelled `missing_epoch_burn`. It never creates a fake signed/zero-work
+The validator searches past missing reports (HTTP 404) for later signed work,
+without consuming missing epochs. Late reports remain eligible. Authenticated
+zero-work reports do not occupy separate chain slots ahead of positive work.
+Bounded scans rotate across gaps; an incomplete scan waits instead of burning.
+With `burn`, a completed scan with no available signed accounting produces a
+full-weight allocation to the verified subnet-owner burn UID, labelled
+`missing_epoch_burn`. It never creates a fake signed/zero-work
 artifact. Signature failures, conflicting accounting, timeouts, and other HTTP
 failures still block submission. Set `--missing-accounting wait` to disable
-the burn fallback. A later signed report may replace that epoch's burn **once**,
-after the minimum block gap: an early safety fallback must not suppress valid
-accounting that becomes available in the same epoch. If that report arrives only
-after the epoch has passed, validators do not replay it automatically. `doctor`
+the burn fallback. A later signed report is queued for a **different chain epoch**;
+it never replaces a burn inside the same reveal window. A durable cursor and
+submission journal prevent replay while permitting sparse reports. On first adoption it
+starts at the latest closed accounting window or after already-submitted work,
+whichever is later. Older missed/submitted work is not automatically replayed.
+When the queue is caught up, `standby_burn` prevents retaining a paid allocation
+indefinitely; it does not consume a signed report. `doctor`
 continues to report an absent feed; that describes
 accounting availability even when the run loop is configured to burn.
 
 Finalized commits may queue while earlier commits await the chain's reveal
-delay. They are recorded as `commit_finalized`, **not** `revealed`. The cadence
-does not individually prove those reveals. Chain pending-commit counts are
+delay, but never share a chain-epoch slot. They are initially recorded as
+`commit_finalized`, **not** `revealed`. Finalized archive observations separately
+verify removal of the exact commitment, its reveal event and weights, then its
+vector at the first subsequent mechanism step. `application_observed` means
+weight application evidence, **not proof of alpha settlement**. Ambiguous,
+expired or overwritten allocations become `application_needs_review`; they are
+not automatically replayed. Chain pending-commit counts are
 checked, and uncertain broadcasts still block all further submissions until
 exact transaction recovery succeeds. The existing authorization expiry and
 submission-count cap remain in force; faster cadence consumes that cap sooner.
-No chain hyperparameters are changed. `--weight-cadence block` retains v0.2.0's
-repeated 100-block refreshes. To use the original epoch/reveal gating,
-set `--weight-interval-blocks 0 --missing-accounting wait`. Returning to that
-mode with cadence commits still unverified blocks new signing.
+No chain hyperparameters are changed. Old `--weight-cadence epoch` and `block`
+arguments are compatibility aliases for `chain`, not a way to restore unsafe
+refreshes. Existing commitments cannot be cancelled by stopping the process.
+Preserve journals, `reward-schedule.json`, `accounting-scan.json`, and authorizations.
+
+### Upgrade an existing validator to v0.4.0
+
+Stop the old instance before starting another with the same hotkey. Keep the same
+state volume, wallet mounts, RPC configuration and signing/dry-run command.
+Do not rerun `init`, delete a volume, clear a journal, or renew authorization
+merely to upgrade. Existing commitments remain on chain and are reconciled.
+
+For the root Compose setup (keep any existing signing override):
+
+```bash
+docker compose stop validator
+export VALIDATOR_IMAGE=ghcr.io/everyframe-studio/everyframe-validator:v0.4.0
+docker compose pull validator
+docker compose run --rm --no-deps validator --version
+docker compose up -d validator
+docker compose logs --tail 100 validator
+```
+
+For source installations, install the v0.4.0 release into the service's virtual
+environment and restart that service with its existing state directory. Check
+`--version`, `status` and `doctor`. A finalized commit is not proof of payment;
+wait for reveal and application evidence. This release adds support for signed
+fixed-41% reports but does not itself change the publisher or chain parameters.
 
 `status` can run while the validator is busy: it reads committed journal data and
 the last completed iteration without taking the signing-operation lock. The last
@@ -259,7 +299,9 @@ a guarantee that signing will succeed; offline mode cannot establish live readin
 
 - `dry_run`: chain checks and signed accounting (or the configured missing-epoch burn fallback) produced a plan; no signature.
 - `waiting`: cooldown, pending-commit limit, or an absent epoch with `--missing-accounting wait`; check `reason`.
-- `commit_finalized`: block-paced submission finalized; it is not proof of reveal.
+- `commit_finalized`: submission finalized; it is not proof of reveal.
+- `application_observed`: weights verified across a mechanism step; not proof of alpha payment.
+- `application_needs_review`: expired, ambiguous or overwritten allocation; no automatic reward replay.
 - `pending_reveal`: a finalized commit exists, but the weights are not yet proven revealed.
 - `finalized`: non-commit-reveal submission confirmed; awaiting read-back.
 - `awaiting_readback`: waiting for finalized non-commit-reveal weights to be read back.

@@ -12,10 +12,11 @@ HASH = re.compile(r"0x[0-9a-f]{64}\Z")
 SCAN_LIMIT = 20
 
 
-async def prepare(client, intent, signer, journal, run_id, start_block):
+async def prepare(client, intent, signer, journal, run_id, start_block, validate_plan=None):
     plan = await client.plan(intent, signer)
     if not plan.ok:
         raise ValueError("submission_policy_rejected")
+    extra = validate_plan(plan) if validate_plan else {}
     nonce = await client._substrate.account_next_index(signer.ss58_address)
     raw, tx_hash = await client._substrate.sign_extrinsic(
         plan.call, signer, nonce=nonce, period=64
@@ -26,6 +27,7 @@ async def prepare(client, intent, signer, journal, run_id, start_block):
     ):
         raise ValueError("invalid_transaction_hash")
     broadcast = {
+        **extra,
         "hash": tx_hash,
         "scanFrom": max(0, start_block - 1),
         "scanThrough": max(0, start_block - 1) - 1,

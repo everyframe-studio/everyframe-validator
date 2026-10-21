@@ -203,7 +203,7 @@ def test_atomic_reservation_blocks_duplicate_epoch_even_after_cooldown(paced, ch
 def test_cli_defaults_epoch_and_one_minute():
     from everyframe_validator.cli import parser
     args = parser().parse_args(['run', '--state-dir', '/unused'])
-    assert args.weight_cadence == 'epoch'
+    assert args.weight_cadence == 'chain'
     assert args.interval == 60
     assert args.weight_interval_blocks == 100
 

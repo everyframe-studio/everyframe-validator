@@ -45,8 +45,8 @@ def parser():
     for name in ('run', 'doctor', 'reconcile'):
         commands[name].add_argument('--rpc-url', help='Override Finney/test RPC with wss:// URL; or set EVERYFRAME_RPC_URL. No credentials in URLs.')
     commands["run"].add_argument("--interval", type=int, default=60, help="Seconds between status/check iterations (default 60)")
-    commands["run"].add_argument("--weight-cadence", choices=("epoch", "block"), default="epoch",
-                                help="Default: one signed accounting update per epoch; block repeats after the minimum gap")
+    commands["run"].add_argument("--weight-cadence", choices=("chain", "epoch", "block"), default="chain",
+                                help="One allocation per actual chain epoch. Old epoch/block values are compatibility aliases for chain.")
     commands["run"].add_argument("--accounting-grace-blocks", type=int, default=25,
                                 help="In epoch mode, wait this many blocks after close before a missing-feed burn (default 25)")
     commands["run"].add_argument("--weight-interval-blocks", type=int, default=100,
@@ -121,7 +121,7 @@ def main():
                 p.error("legacy cadence requires --missing-accounting wait")
             raise SystemExit(asyncio.run(run(root, submit=args.submit, once=args.once, interval=args.interval,
                                             weight_interval_blocks=args.weight_interval_blocks,
-                                            missing_accounting=args.missing_accounting, weight_cadence=args.weight_cadence,
+                                            missing_accounting=args.missing_accounting, weight_cadence='chain',
                                             accounting_grace_blocks=args.accounting_grace_blocks)))
         print(json.dumps(result))
         if args.command == "doctor" and not result["ok"]:

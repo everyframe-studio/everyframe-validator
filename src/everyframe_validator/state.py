@@ -147,6 +147,8 @@ def status_snapshot(path):
         result = row["result"]
         if result.get("extrinsic_id"):
             item["extrinsicId"] = result["extrinsic_id"]
+        if result.get('rewardObservation'):
+            item['rewardObservation'] = result['rewardObservation']
         broadcast = result.get("broadcast", {})
         if broadcast.get("hash"):
             item["transactionHash"] = broadcast["hash"]
