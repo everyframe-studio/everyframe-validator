@@ -3,6 +3,7 @@ from copy import deepcopy
 import json
 import sqlite3
 import time
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -97,7 +98,7 @@ def test_wallet_mismatch_never_signs(profile,payload,signing,chain,monkeypatch):
     root,c=profile
     authorize(root,c)
     wire(monkeypatch,payload,signing)
-    chain.wallet.hotkeypub.ss58_address=hot(4)
+    Path(chain.wallet.hotkey_file.path).write_text(json.dumps({'ss58Address': hot(4)}))
     with pytest.raises(ValueError,match="wallet does not match"):
         asyncio.run(runner.tick(root,submit=True))
     chain.execute.assert_not_called()

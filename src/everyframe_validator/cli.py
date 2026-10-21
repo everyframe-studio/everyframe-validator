@@ -15,6 +15,7 @@ from .runner import run, tick
 from .diagnostics import diagnostic
 from .doctor import doctor
 from .core.rpc import validate_endpoint
+from .wallet import checked_wallet
 
 
 def parser():
@@ -26,7 +27,7 @@ def parser():
     init.add_argument("--validator-hotkey", required=True, help="Public SS58 hotkey, never a seed")
     init.add_argument("--wallet", help="Local Bittensor wallet name (needed only for submission)")
     init.add_argument("--wallet-hotkey", default="default")
-    init.add_argument("--wallet-path", help="Wallet directory; mounted read-only in Docker")
+    init.add_argument("--wallet-path", help="Absolute parent containing wallet directories, e.g. /root/.bittensor/wallets (not /root/.bittensor/wallets/default); mounted read-only in Docker")
     init.add_argument("--wallet-password-file", help="Owner-only JSON with hotkey password, not the seed")
     init.add_argument("--feed-url", help="Explicit trusted HTTPS feed override")
     init.add_argument("--public-key", help="Pinned Ed25519 DER/base64 accounting signer override")
@@ -86,6 +87,10 @@ def main():
                 config["versionKey"] = args.version_key
             validate_url(config["feed"])
             public_key(config["publicKey"])
+            if args.wallet:
+                checked_wallet(config)
+            elif args.wallet_path is not None or args.wallet_password_file is not None:
+                raise ValueError("wallet_not_configured")
             initialize(root, config)
             result = {"state": "initialized", "netuid": config["netuid"], "signingEnabled": False,
                       "message": "Profile ready. Feed availability and validator permit are checked during run."}
@@ -94,8 +99,7 @@ def main():
                 p.error("authorize requires --yes, --days 1..365 and --max-submissions 1..1000000")
             with locked(root) as directory:
                 c = load_config(directory)
-                if not c.get("wallet"):
-                    raise ValueError("wallet_not_configured")
+                checked_wallet(c)
                 consent = {**scope(c["network"], c["netuid"]), "action": "submit-reward-weights",
                            "validatorHotkey": c["validatorHotkey"], "versionKey": c["versionKey"],
                            "expiresAt": int(time.time()*1000) + args.days * 86400000,

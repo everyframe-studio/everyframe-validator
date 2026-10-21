@@ -59,7 +59,7 @@ def profile(tmp_path, signing):
 
 
 @pytest.fixture
-def chain(monkeypatch):
+def chain(monkeypatch, tmp_path):
     import bittensor as bt
     neurons = [SimpleNamespace(uid=i, hotkey=hot(i), coldkey=hot(i+10), validator_permit=i in (0,1)) for i in range(4)]
     params = {"tempo": 360, "weights_version": 2, "commit_reveal_weights_enabled": True,
@@ -103,7 +103,16 @@ def chain(monkeypatch):
     result = {"success": True, "block_hash": "0x"+"c"*64, "extrinsic_id": "4000-0"}
     execute = AsyncMock(return_value=SimpleNamespace(**result, to_dict=lambda: result))
     preview = AsyncMock(return_value=SimpleNamespace(ok=True, call="FAKE_POLICY_CHECKED_CALL"))
-    wallet = SimpleNamespace(hotkeypub=SimpleNamespace(ss58_address=hot(1)), get_hotkey=lambda _: SimpleNamespace(ss58_address=hot(1)))
+    import json
+    wallet_root = tmp_path / 'wallets'
+    key_dir = wallet_root / 'test-wallet' / 'hotkeys'
+    key_dir.mkdir(parents=True)
+    private_file, public_file = key_dir / 'default', key_dir / 'defaultpub.txt'
+    private_file.write_text(json.dumps({'ss58Address': hot(1), 'secretSeed': 'fixture; never unlocked'}))
+    wallet = SimpleNamespace(path=str(wallet_root), name='test-wallet', hotkey_str='default',
+        hotkey_file=SimpleNamespace(path=str(private_file)),
+        hotkeypub_file=SimpleNamespace(path=str(public_file), is_encrypted=lambda: False),
+        hotkeypub=SimpleNamespace(ss58_address=hot(1)), get_hotkey=lambda _: SimpleNamespace(ss58_address=hot(1)))
     monkeypatch.setattr(bt, "Client", Client)
     monkeypatch.setattr(bt, "Wallet", lambda *args, **kwargs: wallet)
     return SimpleNamespace(execute=execute, preview=preview, params=params, neurons=neurons, graph=graph, wallet=wallet, network=network)

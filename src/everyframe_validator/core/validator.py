@@ -174,9 +174,14 @@ def reserve_run(journal, run_id, record, authorization=None):
 
 async def main(args):
     import bittensor as bt
+    from ..wallet import checked_wallet, check_signer
     domain = scope(getattr(args, 'network', 'test'), args.netuid)
     authorization = check_authorization(getattr(args, 'mainnet_authorization', None), domain,
         args.validator_hotkey, args.version_key) if args.submit else None
+    wallet_config = {'wallet': args.wallet, 'walletHotkey': args.wallet_hotkey,
+                     'walletPath': args.wallet_path, 'validatorHotkey': args.validator_hotkey}
+    if args.submit:
+        checked_wallet(wallet_config)
     end = int(time.time() * 1000)
     pilot_jobs = getattr(args, 'test_job_id', [])
     if pilot_jobs and domain['network'] != 'test':
@@ -248,9 +253,7 @@ async def main(args):
                 return
         if not args.wallet:
             raise ValueError('--wallet is required for explicit submission')
-        wallet = bt.Wallet(args.wallet, args.wallet_hotkey, **({'path': args.wallet_path} if args.wallet_path else {}))
-        if wallet.hotkeypub.ss58_address != args.validator_hotkey:
-            raise ValueError('wallet does not match intended validator')
+        wallet = checked_wallet(wallet_config)
         password = None
         if args.wallet_password_file:
             secret_path = Path(args.wallet_password_file)
@@ -258,7 +261,7 @@ async def main(args):
                 raise ValueError('password file must be owner-only')
             # Password stays in-process; never passed on command line or printed.
             password = json.loads(secret_path.read_text())['hotkey']
-        signer = wallet.get_hotkey(password)
+        signer = check_signer(wallet.get_hotkey(password), args.validator_hotkey)
         del password
         os.umask(0o077)
         journal = sqlite3.connect(args.journal)

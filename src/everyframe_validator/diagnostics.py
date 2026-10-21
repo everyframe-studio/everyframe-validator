@@ -7,9 +7,16 @@ from pathlib import Path
 
 from cryptography.exceptions import InvalidSignature
 from bittensor.result import ChainError, PolicyError
+from .wallet import WalletConfigurationError
 
 
 ERRORS = {
+    "invalid_wallet_path": ("invalid_wallet_path", "Use an absolute parent directory containing wallet names for --wallet-path, not the named wallet directory."),
+    "invalid_wallet_configuration": ("invalid_wallet_configuration", "Check the wallet and hotkey names. --wallet-path must be their parent directory."),
+    "wallet_path_includes_name": ("wallet_path_includes_name", "walletPath already includes the wallet name, which the SDK appends again. Correct only walletPath to the suggested parent, then rerun doctor. No profile or wallet was changed."),
+    "wallet_hotkey_missing": ("wallet_hotkey_missing", "The configured private hotkey file is missing or not a regular file. Check the resolved hotkeyFile and wallet parent directory; restore the intended wallet, never create a replacement identity."),
+    "wallet_file_unreadable": ("wallet_file_unreadable", "The operator cannot access a configured wallet file. Check the resolved paths, permissions and read-only wallet mounts."),
+    "wallet_public_metadata_invalid": ("wallet_public_metadata_invalid", "The configured hotkey has missing, conflicting or invalid public metadata. A separate hotkeypub.txt is not required when public metadata is present in the hotkey. Check the intended existing wallet; do not regenerate keys or reset validator state."),
     'chain_epoch_schedule_unavailable': ('chain_schedule_unavailable', 'Cannot verify the finalized subnet epoch schedule. Check RPC/runtime compatibility; no weights were submitted.'),
     'timelock_schedule_unavailable': ('timelock_schedule_unavailable', 'The SDK did not supply a verifiable future reveal schedule. No transaction was broadcast.'),
     'timelock_schedule_not_future': ('timelock_schedule_not_future', 'The planned reveal time is already past. Check the chain and SDK schedule; no transaction was broadcast.'),
@@ -224,6 +231,8 @@ def diagnostic(exc, stage=None):
             "Validation could not complete. Run doctor to identify the failing stage. Preserve journals and do not retry uncertain transactions.",
         )
     result = {"state": "failed", "code": code, "message": message}
+    if isinstance(exc, WalletConfigurationError):
+        result["walletPaths"] = exc.paths
     if stage:
         result["stage"] = stage
     return result

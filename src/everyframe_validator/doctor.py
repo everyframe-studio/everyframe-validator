@@ -2,6 +2,7 @@
 
 from .core.chain_scope import scope, check_authorization, read_network, rpc_options
 from .diagnostics import diagnostic
+from .wallet import checked_wallet, wallet_paths
 from .feed import fetch, verify, FeedUnavailable
 from .state import (
     private_directory,
@@ -28,7 +29,8 @@ async def doctor(path, offline=False):
         checks.append({"name": "profile", "ok": True})
     except Exception as exc:
         failure("profile", exc)
-        return {"ok": False, "checks": checks, "submittedTransaction": False}
+        return {"ok": False, "readOnlyOk": False, "signingPrerequisitesOk": None,
+                "networkChecksPerformed": False, "checks": checks, "submittedTransaction": False}
     domain = scope(c["network"], c["netuid"])
     checks.append(
         {
@@ -65,27 +67,22 @@ async def doctor(path, offline=False):
         failure("authorization", exc, required=False)
     # Reading a public wallet address never unlocks or signs with the private key.
     try:
-        if not c.get("wallet"):
-            raise ValueError("wallet_not_configured")
-        import bittensor as bt
-
-        wallet = bt.Wallet(
-            c["wallet"],
-            c.get("walletHotkey", "default"),
-            **({"path": c["walletPath"]} if c.get("walletPath") else {}),
-        )
-        if wallet.hotkeypub.ss58_address != c["validatorHotkey"]:
-            raise ValueError("wallet does not match intended validator")
+        wallet, identity = checked_wallet(c, with_identity=True)
         checks.append(
             {
                 "name": "wallet",
                 "ok": True,
-                "required": False,
-                "message": "Public hotkey matches. Private key unlock was not attempted.",
+                "required": True,
+                "walletPaths": wallet_paths(wallet),
+                "publicIdentitySource": identity["publicIdentitySource"],
+                "publicIdentityVerified": identity["publicIdentityVerified"],
+                "message": ("Hotkey exists and public metadata matches. Private key unlock and signing were not attempted."
+                            if identity["publicIdentityVerified"] else
+                            "Encrypted hotkey exists. Public identity is not verified until explicit private-key unlock; doctor did not decrypt or sign."),
             }
         )
     except Exception as exc:
-        failure("wallet", exc, required=False)
+        failure("wallet", exc, required=bool(c.get("wallet")))
     if not offline:
         epoch = None
         try:
@@ -148,11 +145,14 @@ async def doctor(path, offline=False):
                 )
             except Exception as exc:
                 failure("feed", exc)
+    all_checks_ok = all(item["ok"] for item in checks)
+    identity_deferred = any(item.get("publicIdentityVerified") is False for item in checks)
     return {
         "ok": all(item["ok"] for item in checks if item.get("required", True)),
-        "signingPrerequisitesOk": all(item["ok"] for item in checks)
-        if not offline
-        else None,
+        "readOnlyOk": all(item["ok"] for item in checks
+                          if item.get("required", True) and item["name"] != "wallet"),
+        "signingPrerequisitesOk": (False if not all_checks_ok else None if identity_deferred else True)
+        if not offline else None,
         "networkChecksPerformed": not offline,
         "checks": checks,
         "submittedTransaction": False,

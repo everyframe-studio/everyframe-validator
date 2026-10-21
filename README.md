@@ -7,11 +7,14 @@ provider API keys, GPU, Phala account, or miner TEE is required.
 
 ## Release status
 
-Version 0.4.0 provides a Linux amd64 image at
+Version 0.4.1 provides a Linux amd64 image at
 `ghcr.io/everyframe-studio/everyframe-validator:latest` and versioned tags.
 It is **not published to PyPI**. Check [Releases](https://github.com/everyframe-studio/everyframe-validator/releases)
 for published versions; see [RELEASING.md](RELEASING.md).
-Version 0.4.0 includes chain-epoch scheduling and sparse accounting recovery.
+Version 0.4.1 fixes legacy wallet compatibility: `defaultpub.txt` is not required
+when the existing hotkey file contains public metadata. Setup and doctor now
+identify incorrect wallet roots before signing-mode epoch waits.
+It retains v0.4.0's chain-epoch scheduling and sparse accounting recovery.
 It uses Finney RPC, at most one allocation per actual chain epoch,
 60-second polling, a 100-block minimum submission gap, and a durable signed-report
 queue. v0.3.0's accounting-epoch cadence and v0.2.0's block refresh are superseded
@@ -79,7 +82,7 @@ docker compose up -d
 ```
 
 Use either the standalone Docker commands or Compose, not both with the same hotkey.
-Pin `:v0.4.0` or an immutable `@sha256:...` for reproducibility. The separate
+Pin `:v0.4.1` or an immutable `@sha256:...` for reproducibility. The separate
 [managed canary workflow](deploy/README.md) still requires immutable release
 digests; `image.txt` remains available for that advanced workflow only.
 
@@ -142,6 +145,32 @@ everyframe-validator init \
 
 everyframe-validator run --state-dir ./state/mainnet117 --once
 ```
+
+`--wallet-path` is the **parent of wallet directories**, not the named wallet
+directory. For `--wallet default --wallet-hotkey default`, use
+`--wallet-path /root/.bittensor/wallets`, not
+`/root/.bittensor/wallets/default`. The SDK then resolves:
+
+```text
+/root/.bittensor/wallets/default/hotkeys/default
+```
+
+When a wallet is supplied, init and authorize check its existing hotkey file and
+public metadata without unlocking a private key. **No `defaultpub.txt` is required.**
+Legacy hotkey JSON already contains `publicKey`, `accountId` and/or `ss58Address`;
+only these public fields are used to check identity, never its secret seed/phrase.
+A broken signing profile is
+reported before the run loop waits for an eligible epoch. A likely duplicated
+wallet root is shown as a suggested correction only; no profile, wallet or
+journal is automatically rewritten. An existing public sidecar is only an optional
+fallback for encrypted or metadata-less hotkeys. Encrypted files are not decrypted
+by diagnostics; if no public metadata is available, identity is explicitly deferred
+until the actual signer is unlocked in an authorized signing run. Doctor reports
+`publicIdentityVerified: false` and readiness as unknown in that case. Every signing
+path checks the unlocked signer's address before reserving or broadcasting work.
+Never generate a replacement private key or copy private bytes to a public file.
+To initialize before mounting a wallet, omit the wallet flags for read-only
+operation, then configure and check the intended wallet before authorization.
 
 Mainnet is the default. Add `--network testnet` **to init** and choose a separate
 state directory for SN566. Runtime reads the pinned profile; there is no runtime
@@ -264,7 +293,7 @@ arguments are compatibility aliases for `chain`, not a way to restore unsafe
 refreshes. Existing commitments cannot be cancelled by stopping the process.
 Preserve journals, `reward-schedule.json`, `accounting-scan.json`, and authorizations.
 
-### Upgrade an existing validator to v0.4.0
+### Upgrade an existing validator to v0.4.1
 
 Stop the old instance before starting another with the same hotkey. Keep the same
 state volume, wallet mounts, RPC configuration and signing/dry-run command.
@@ -275,18 +304,18 @@ For the root Compose setup (keep any existing signing override):
 
 ```bash
 docker compose stop validator
-export VALIDATOR_IMAGE=ghcr.io/everyframe-studio/everyframe-validator:v0.4.0
+export VALIDATOR_IMAGE=ghcr.io/everyframe-studio/everyframe-validator:v0.4.1
 docker compose pull validator
 docker compose run --rm --no-deps validator --version
 docker compose up -d validator
 docker compose logs --tail 100 validator
 ```
 
-For source installations, install the v0.4.0 release into the service's virtual
+For source installations, install the v0.4.1 release into the service's virtual
 environment and restart that service with its existing state directory. Check
 `--version`, `status` and `doctor`. A finalized commit is not proof of payment;
-wait for reveal and application evidence. This release adds support for signed
-fixed-41% reports but does not itself change the publisher or chain parameters.
+wait for reveal and application evidence. This wallet patch preserves support for
+signed fixed-41% reports and does not change rewards, chain parameters or accounting.
 
 `status` can run while the validator is busy: it reads committed journal data and
 the last completed iteration without taking the signing-operation lock. The last
@@ -294,8 +323,13 @@ iteration's age is shown explicitly; it is not a live heartbeat or signing permi
 `doctor` checks the profile, journal, public wallet identity, local authorization,
 RPC/permit and signed feed without unlocking a private key or sending a transaction.
 Use `doctor --offline` to skip network checks. Missing authorization is a warning
-for dry-run operation. `signingPrerequisitesOk` reports the checks performed, not
+for dry-run operation. A configured broken wallet makes `ok` false and exits 2;
+`readOnlyOk` separately reports whether non-wallet read-only checks passed.
+Wallet diagnostics include the resolved file paths, never file contents.
+`signingPrerequisitesOk` reports the checks performed, not
 a guarantee that signing will succeed; offline mode cannot establish live readiness.
+After correcting an existing profile, rerun doctor, and restart only the existing
+validator instance when signing checks pass. Do not reinitialize or clear state.
 
 - `dry_run`: chain checks and signed accounting (or the configured missing-epoch burn fallback) produced a plan; no signature.
 - `waiting`: cooldown, pending-commit limit, or an absent epoch with `--missing-accounting wait`; check `reason`.
