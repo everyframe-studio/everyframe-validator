@@ -22,6 +22,9 @@ Packaging changes:
 - Cancelled submissions are journaled as uncertain (`BaseException` handling).
 - Confirmed but not yet read-back non-timelock submissions also block new signing.
 - Reject accounting that claims finalization beyond the current finalized chain head.
+- Shared read-only wallet preflight validates parent paths, file presence and
+  public identity without unlocking or rewriting keys. Signing separately checks
+  the unlocked private signer's identity before reserving a submission.
 - The pinned Bittensor 11.1.0 submission adapter uses policy-checked intent planning,
   records the signed transaction hash before a single transport submission, and
   can recover uncertain broadcasts using exact-hash finalized inclusion. Missing

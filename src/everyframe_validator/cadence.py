@@ -147,6 +147,9 @@ async def tick(root, config, submit, interval, missing, weight_cadence='block', 
             rows = journal_rows(root)
             if any(r['state'] in ('unknown', 'submitting') for r in rows):
                 return {'state': 'blocked', 'reason': 'uncertain_submission', 'submittedTransaction': False}
+        if submit:
+            from .wallet import checked_wallet
+            checked_wallet(config)
         next_block = due_at(rows, view, interval)
         common = {'finalizedBlock': view['block'], 'nextEligibleBlock': next_block,
                   'intervalBlocks': max(interval, view['params']['weights_rate_limit']),
@@ -215,12 +218,10 @@ async def tick(root, config, submit, interval, missing, weight_cadence='block', 
             return result
         if not config.get('wallet'):
             raise ValueError('wallet_not_configured')
-        wallet = bt.Wallet(config['wallet'], config.get('walletHotkey', 'default'),
-                           **({'path': config['walletPath']} if config.get('walletPath') else {}))
-        if wallet.hotkeypub.ss58_address != config['validatorHotkey']:
-            raise ValueError('wallet does not match intended validator')
+        from .wallet import checked_wallet, check_signer
+        wallet = checked_wallet(config)
         password = read_private(config['walletPasswordFile'])['hotkey'] if config.get('walletPasswordFile') else None
-        signer = wallet.get_hotkey(password)
+        signer = check_signer(wallet.get_hotkey(password), config['validatorHotkey'])
         del password
         record['authorizationId'] = consent['id']
         run_id = hashlib.sha256(json.dumps(record, sort_keys=True).encode()).hexdigest()

@@ -46,6 +46,49 @@ def advance(case, chain):
     chain.execute.return_value = SimpleNamespace(**data, to_dict=lambda: data)
 
 
+def test_bad_wallet_fails_before_epoch_wait_without_signing(scheduled_case, chain):
+    from pathlib import Path
+    from everyframe_validator.wallet import WalletConfigurationError
+    scheduled_case[3]['LastEpochBlock'] = scheduled_case[2]['block'] - 1
+    Path(chain.wallet.hotkey_file.path).unlink()
+    with pytest.raises(WalletConfigurationError, match='wallet_hotkey_missing'):
+        run(scheduled_case)
+    chain.execute.assert_not_called()
+    chain.preview.assert_not_called()
+    assert journal_rows(scheduled_case[0]) == []
+    status = json.loads((scheduled_case[0] / 'status.json').read_text())
+    assert status['code'] == 'wallet_hotkey_missing'
+    assert status['walletPaths']['hotkeyFile'] == chain.wallet.hotkey_file.path
+    cursor = json.loads((scheduled_case[0] / 'reward-schedule.json').read_text())
+    assert cursor['startEpoch'] == scheduled_case[2]['epoch']
+
+
+def test_actual_signer_identity_checked_before_reservation(scheduled_case, chain):
+    chain.wallet.get_hotkey = lambda _: SimpleNamespace(ss58_address=hot(3))
+    with pytest.raises(ValueError, match='wallet does not match'):
+        run(scheduled_case)
+    chain.execute.assert_not_called()
+    chain.preview.assert_not_called()
+    assert journal_rows(scheduled_case[0]) == []
+
+
+def test_uncertain_recovery_precedes_wallet_preflight(scheduled_case, chain, monkeypatch):
+    from pathlib import Path
+    chain.execute.side_effect = TimeoutError()
+    with pytest.raises(TimeoutError):
+        run(scheduled_case)
+    before = journal_rows(scheduled_case[0])
+    assert before[0]['state'] == 'unknown'
+    Path(chain.wallet.hotkey_file.path).unlink()
+    recovery = AsyncMock(return_value={'state': 'unknown'})
+    monkeypatch.setattr(scheduled, 'recover', recovery)
+    result = run(scheduled_case)
+    assert result['state'] == 'blocked' and result['reason'] == 'uncertain_submission'
+    recovery.assert_awaited_once()
+    assert journal_rows(scheduled_case[0]) == before
+    assert chain.execute.await_count == 1
+
+
 def test_once_per_chain_epoch_even_with_changed_accounting(scheduled_case, chain):
     assert run(scheduled_case)['state'] == 'commit_finalized'
     scheduled_case[2].update(block=4100, epoch=11)

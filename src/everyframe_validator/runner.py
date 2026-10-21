@@ -13,6 +13,7 @@ from .core.reward_policy import seal_epoch, digest
 from .feed import fetch, verify, FeedUnavailable
 from .state import locked, load_config, journal_rows, atomic_json, read_private
 from .diagnostics import diagnostic
+from .wallet import checked_wallet
 
 
 async def chain_target(config):
@@ -132,6 +133,8 @@ async def _tick(root, submit=False, only_reconcile=False):
             "reports": reports,
             "submittedTransaction": False,
         }
+    if submit:
+        checked_wallet(c)
     epoch, open_epoch = await chain_target(c)
     if epoch < 0:
         return {"state": "waiting", "reason": "no_closed_epoch"}

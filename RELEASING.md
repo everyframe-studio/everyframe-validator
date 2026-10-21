@@ -29,8 +29,8 @@ update third-party validators, or authorize signing. PyPI is not configured.
    ```bash
    git switch main
    git pull --ff-only
-   git tag -a v0.4.0 -m "EveryFrame Validator v0.4.0"
-   git push origin v0.4.0
+   git tag -a v0.4.1 -m "EveryFrame Validator v0.4.1"
+   git push origin v0.4.1
    ```
 
 3. Approve **Release validator**. It checks version/tag/main ancestry, tests and

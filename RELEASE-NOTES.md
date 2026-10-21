@@ -1,3 +1,19 @@
+# EveryFrame Validator v0.4.1
+
+- Check configured wallet paths and public identity during init and authorize,
+  and before signing-mode epoch waits. Show the resolved private/public filenames
+  and a verified duplicate-root suggestion instead of a generic missing-file error.
+- A configured broken wallet now makes doctor fail; readOnlyOk separately reports
+  non-wallet checks. Wallet-free read-only profiles remain supported.
+- Read public metadata directly from existing legacy hotkeys; no separate
+  hotkeypub.txt is required or generated. Diagnostics never decrypt, pass secret
+  fields to keypair deserialization, or print keyfile contents. Encrypted identity
+  checks may be deferred until an authorized unlock and are explicitly not
+  reported verified.
+- Preflight never unlocks keys or rewrites profiles/journals. Verify the actual
+  private signer identity again before reserving or signing a transaction.
+  No scheduling or reward changes.
+
 # EveryFrame Validator v0.4.0
 
 - Recover across missing accounting reports: later verified work can proceed,

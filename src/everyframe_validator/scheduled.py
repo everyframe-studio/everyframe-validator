@@ -277,6 +277,11 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
         # waiting or while the feed is unavailable must not be skipped.
         epoch = accounting_cursor(root, view, rows, submit)
         common['nextAccountingEpoch'] = epoch
+        # Recover/observe existing submissions and preserve the accounting cursor
+        # first, but do not hide a broken wallet behind an hours-long epoch wait.
+        if submit:
+            from .wallet import checked_wallet
+            checked_wallet(config)
         reason = gate(view, s, rows)
         next_block = cadence.due_at(rows, view, interval)
         if reason or view['block'] < next_block:
@@ -334,14 +339,10 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
                   'allBurn': plan['allBurn'], 'accountingSource': source}
         if not submit:
             return result
-        if not config.get('wallet'):
-            raise ValueError('wallet_not_configured')
-        wallet = bt.Wallet(config['wallet'], config.get('walletHotkey', 'default'),
-                           **({'path': config['walletPath']} if config.get('walletPath') else {}))
-        if wallet.hotkeypub.ss58_address != config['validatorHotkey']:
-            raise ValueError('wallet does not match intended validator')
+        from .wallet import checked_wallet, check_signer
+        wallet = checked_wallet(config)
         password = read_private(config['walletPasswordFile'])['hotkey'] if config.get('walletPasswordFile') else None
-        signer = wallet.get_hotkey(password)
+        signer = check_signer(wallet.get_hotkey(password), config['validatorHotkey'])
         del password
         record['authorizationId'] = consent['id']
         run_id = hashlib.sha256(json.dumps(record, sort_keys=True).encode()).hexdigest()
