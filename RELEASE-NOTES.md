@@ -1,4 +1,17 @@
-# Unreleased — chain-epoch reward scheduling
+# EveryFrame Validator v0.4.0
+
+- Recover across missing accounting reports: later verified work can proceed,
+  missing reports remain eligible, and already-submitted reports cannot replay.
+- Verify and pass over zero-work reports before allocating a chain slot to paid
+  work. Bounded incomplete scans wait; errors never become fake zero accounting.
+- Independent validator upgrade: stop the previous instance, update the image
+  or package, and reuse the same state, wallet mounts, RPC and signing command.
+  Do not reinitialize, clear journals, or delete state volumes.
+
+- Support explicit fixed-41% miner-pool accounting for new mainnet reports.
+  Legacy signed reports retain their original share. Deploy updated feed
+  consumers/publisher before the finalizer; older clients reject the new field.
+  No chain emission parameter changes, historical replay, or extra reward bonus.
 
 - Replace repeated/block and fixed-accounting-window signing with one allocation
   per actual finalized subnet epoch. Legacy CLI cadence flags map to the safe mode.

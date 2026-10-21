@@ -7,15 +7,15 @@ provider API keys, GPU, Phala account, or miner TEE is required.
 
 ## Release status
 
-Version 0.3.0 provides a Linux amd64 image at
+Version 0.4.0 provides a Linux amd64 image at
 `ghcr.io/everyframe-studio/everyframe-validator:latest` and versioned tags.
 It is **not published to PyPI**. Check [Releases](https://github.com/everyframe-studio/everyframe-validator/releases)
 for published versions; see [RELEASING.md](RELEASING.md).
-The source branch includes a newer chain-epoch scheduling fix (not yet a tagged
-release). It uses Finney RPC, at most one allocation per actual chain epoch,
+Version 0.4.0 includes chain-epoch scheduling and sparse accounting recovery.
+It uses Finney RPC, at most one allocation per actual chain epoch,
 60-second polling, a 100-block minimum submission gap, and a durable signed-report
 queue. v0.3.0's accounting-epoch cadence and v0.2.0's block refresh are superseded
-in this source version; check the release tag before assuming an image includes it.
+in v0.4.0; older images do not include these fixes.
 Invalid signatures and network errors still block. No fake zero-work accounting
 is created. Installation never registers a wallet or authorizes signing.
 
@@ -79,7 +79,7 @@ docker compose up -d
 ```
 
 Use either the standalone Docker commands or Compose, not both with the same hotkey.
-Pin `:v0.3.0` or an immutable `@sha256:...` for reproducibility. The separate
+Pin `:v0.4.0` or an immutable `@sha256:...` for reproducibility. The separate
 [managed canary workflow](deploy/README.md) still requires immutable release
 digests; `image.txt` remains available for that advanced workflow only.
 
@@ -166,11 +166,11 @@ everyframe-validator run --state-dir ./state/mainnet117 --submit
 This is **your local consent**, not subnet-owner approval. Consent expires and is
 bounded by submission count; renewing it does not clear pending submissions or
 allow replaying old epochs. Without `--submit`, even an authorized profile stays
-read-only with respect to the chain. The default block-paced mode has a zero-fee
-policy; a nonzero/unavailable fee estimate blocks signing. The legacy epoch mode
-retains its 0.02 TAO ceiling. Neither is an income guarantee.
-Keep the process running to recover uncertain transactions. Only the latest
-closed accounting epoch is eligible, never backlog replay.
+read-only with respect to the chain. The default chain-epoch scheduler has a zero-fee
+policy; a nonzero/unavailable fee estimate blocks signing. Legacy cadence flags
+also use the safe chain-epoch scheduler. This is not an income guarantee.
+Keep the process running to recover uncertain transactions. Previously adopted,
+unsubmitted signed reports remain queued; already-submitted reports are not replayed.
 
 ## Operations
 
@@ -229,14 +229,18 @@ reward allocation from being overwritten by a same-window burn. Unsupported
 short tempos or rate limits block instead of weakening these safeguards.
 
 A missing feed gets 25 blocks of publication grace (bounded to the epoch length).
-With `burn`, an absent queued epoch
-(HTTP 404) produces a full-weight allocation to the verified subnet-owner burn
-UID, labelled `missing_epoch_burn`. It never creates a fake signed/zero-work
+The validator searches past missing reports (HTTP 404) for later signed work,
+without consuming missing epochs. Late reports remain eligible. Authenticated
+zero-work reports do not occupy separate chain slots ahead of positive work.
+Bounded scans rotate across gaps; an incomplete scan waits instead of burning.
+With `burn`, a completed scan with no available signed accounting produces a
+full-weight allocation to the verified subnet-owner burn UID, labelled
+`missing_epoch_burn`. It never creates a fake signed/zero-work
 artifact. Signature failures, conflicting accounting, timeouts, and other HTTP
 failures still block submission. Set `--missing-accounting wait` to disable
 the burn fallback. A later signed report is queued for a **different chain epoch**;
-it never replaces a burn inside the same reveal window. A durable cursor processes
-reports in order and does not skip reports during outages. On first adoption it
+it never replaces a burn inside the same reveal window. A durable cursor and
+submission journal prevent replay while permitting sparse reports. On first adoption it
 starts at the latest closed accounting window or after already-submitted work,
 whichever is later. Older missed/submitted work is not automatically replayed.
 When the queue is caught up, `standby_burn` prevents retaining a paid allocation
@@ -258,7 +262,31 @@ submission-count cap remain in force; faster cadence consumes that cap sooner.
 No chain hyperparameters are changed. Old `--weight-cadence epoch` and `block`
 arguments are compatibility aliases for `chain`, not a way to restore unsafe
 refreshes. Existing commitments cannot be cancelled by stopping the process.
-Preserve journals, the new `reward-schedule.json` cursor, and authorizations.
+Preserve journals, `reward-schedule.json`, `accounting-scan.json`, and authorizations.
+
+### Upgrade an existing validator to v0.4.0
+
+Stop the old instance before starting another with the same hotkey. Keep the same
+state volume, wallet mounts, RPC configuration and signing/dry-run command.
+Do not rerun `init`, delete a volume, clear a journal, or renew authorization
+merely to upgrade. Existing commitments remain on chain and are reconciled.
+
+For the root Compose setup (keep any existing signing override):
+
+```bash
+docker compose stop validator
+export VALIDATOR_IMAGE=ghcr.io/everyframe-studio/everyframe-validator:v0.4.0
+docker compose pull validator
+docker compose run --rm --no-deps validator --version
+docker compose up -d validator
+docker compose logs --tail 100 validator
+```
+
+For source installations, install the v0.4.0 release into the service's virtual
+environment and restart that service with its existing state directory. Check
+`--version`, `status` and `doctor`. A finalized commit is not proof of payment;
+wait for reveal and application evidence. This release adds support for signed
+fixed-41% reports but does not itself change the publisher or chain parameters.
 
 `status` can run while the validator is busy: it reads committed journal data and
 the last completed iteration without taking the signing-operation lock. The last

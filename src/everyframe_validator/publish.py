@@ -20,6 +20,8 @@ from .state import atomic_json
 
 def project(artifact, bindings):
     keys = ARTIFACT_KEYS | (MAINNET_KEYS if artifact["network"] == "finney" else set())
+    if artifact["network"] == "finney" and "minerSharePolicy" in artifact:
+        keys |= {"minerSharePolicy"}
     public = {key: artifact[key] for key in keys}
     public["window"] = {key: artifact["window"][key] for key in WINDOW_KEYS}
     public["window"]["scores"] = [{key: row[key] for key in SCORE_KEYS} for row in artifact["window"]["scores"]]

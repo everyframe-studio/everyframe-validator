@@ -19,9 +19,19 @@ are rejected. Maximum document size is 2,000,000 bytes and maximum scored miners
 
 The artifact binds network, netuid, genesis, epoch, period, block range and boundary
 hashes. Testnet is strictly test/SN566; mainnet strictly finney/SN117. Mainnet also
-includes owner-cut evidence, exact derived miner share, recycle/burn disposition,
+includes owner-cut evidence, miner share, recycle/burn disposition,
 and `accountingWindow: fixed-tempo-plus-one-v1`. These fixed accounting windows are
 not represented as subnet-offset Yuma distribution epochs.
+
+New mainnet accounting uses `minerSharePolicy: fixed-41-percent-v1` and
+`minerShare: "0.41"`. The pool is total epoch alpha emissions × 0.41 × alpha/USD.
+Owner-cut evidence remains recorded but does not adjust this fixed accounting
+share. This does not change chain emission parameters or add a miner premium.
+Legacy signed reports without the policy field retain their original
+chain-derived share; they are neither rewritten nor replayed. Unknown policies
+or inconsistent shares are rejected. Upgrade feed consumers and the signing
+publisher before enabling the new finalizer: older validators reject the new
+field.
 
 Window fields: `version`, `policy`, `start`, `end`, `finalizedAt`, `scores`.
 Scores contain `minerId`, integer `earningsMicrousd`, integer `surchargeMicrousd`,
@@ -47,8 +57,15 @@ Scheduling slots instead use finalized `SubnetEpochIndex` and `LastEpochBlock`.
 to a burn-only safety plan after publication grace; `--missing-accounting wait`
 disables that fallback. Invalid signatures or network errors never mean burn.
 The scheduler reserves at most one allocation per actual chain epoch and consumes
-each signed report once, in cursor order. A missing-feed burn does not consume
-that report; a later report must use a different chain slot. Already submitted
+each signed report once. Publication may be sparse after a publisher outage:
+a 404 does not consume an epoch or block a later verified report. Bounded scans
+rotate across gaps, retry missing epochs, and ignore already-submitted reports.
+Invalid signatures, invalid chain provenance, and transport errors stop the scan;
+they are never interpreted as absent accounting. Verified zero-work reports do
+not require dedicated burn slots ahead of paid work. A scan that reaches its
+probe/time budget waits rather than claiming the unchecked reports are empty.
+A missing-feed burn does not consume that report; a later report must use a
+different chain slot. Already submitted
 historical reports are not replayed. Finalized reveal and mechanism-step evidence
 are stored separately from transaction finality and do not prove alpha settlement.
 The complete payload hash (including bindings) is stored immutably;
