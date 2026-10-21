@@ -184,6 +184,17 @@ def test_dry_gap_scan_does_not_change_scan_position(scheduled_case, chain):
     assert not (scheduled_case[0] / 'accounting-scan.json').exists()
 
 
+def test_actual_scan_deadline_waits_without_signing(scheduled_case, chain, monkeypatch):
+    async def slow(*args):
+        await asyncio.sleep(1)
+    monkeypatch.setattr(scheduled, 'available_accounting', slow)
+    monkeypatch.setattr(scheduled, 'ACCOUNTING_SCAN_TIMEOUT_SECONDS', 0.001)
+    result = run(scheduled_case)
+    assert result['reason'] == 'accounting_scan_timeout'
+    chain.execute.assert_not_called()
+    assert not journal_rows(scheduled_case[0])
+
+
 @pytest.mark.parametrize('offset', [0, 4, 91, 355, 360])
 def test_early_window_bounds(scheduled_case, chain, offset):
     scheduled_case[2]['block'] = 3960 + offset

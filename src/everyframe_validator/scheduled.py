@@ -21,6 +21,7 @@ from .state import atomic_json, journal_rows, read_private
 
 CADENCE = 'chain-epoch-v2'
 MAX_ACCOUNTING_PROBES = 32
+ACCOUNTING_SCAN_TIMEOUT_SECONDS = 30
 
 
 async def reconcile_only(root, config):
@@ -286,10 +287,17 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
         payload, source = None, 'standby_burn'
         if epoch <= view['epoch']:
             source = 'missing_epoch_burn'
+            scan_task = asyncio.create_task(available_accounting(
+                client, root, config, domain, view, rows, epoch, submit))
             try:
-                payload, selected, scan = await asyncio.wait_for(available_accounting(
-                    client, root, config, domain, view, rows, epoch, submit), timeout=30)
+                payload, selected, scan = await asyncio.wait_for(
+                    scan_task, timeout=ACCOUNTING_SCAN_TIMEOUT_SECONDS)
             except asyncio.TimeoutError:
+                # Python >=3.11 aliases asyncio.TimeoutError to TimeoutError.
+                # A transport timeout raised inside a completed task is not
+                # cancellation by our scan deadline, and must remain an error.
+                if not scan_task.cancelled():
+                    raise
                 return {**common, 'state': 'waiting', 'reason': 'accounting_scan_timeout'}
             common.update(scan)
             if not scan['accountingScanComplete']:
