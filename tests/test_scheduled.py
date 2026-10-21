@@ -1,6 +1,7 @@
 import asyncio
 import json
 import sqlite3
+from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -71,6 +72,116 @@ def test_signed_report_never_repeated(scheduled_case, chain, payload, signing, m
     monkeypatch.setattr(scheduled, 'fetch', lambda *a: (_ for _ in ()).throw(FeedUnavailable()))
     assert run(scheduled_case)['nextAccountingEpoch'] == 11
     assert journal_rows(scheduled_case[0])[0]['result']['alphaSettlementConfirmed'] is False
+
+
+def report_for(payload, epoch, signing, empty=False):
+    p = deepcopy(payload)
+    a = p['artifact']
+    a.update(epoch=epoch, startBlock=epoch*361, endBlock=(epoch+1)*361,
+             finalizedBlock=(epoch+1)*361+4,
+             closeBlockHash='0x'+('b' if epoch == 10 else 'a')*64)
+    if empty:
+        a['window']['scores'] = []
+        p['bindings'] = {}
+    return json.dumps(sign(p, signing[0])).encode()
+
+
+def test_gap_does_not_block_newer_report_and_late_gap_is_not_lost(scheduled_case, chain, payload, signing, monkeypatch):
+    # Epoch 10 was absent; its burn must not consume the late report.
+    run(scheduled_case)
+    advance(scheduled_case, chain)
+    seen = []
+    def fetch_new(feed, epoch):
+        seen.append(epoch)
+        if epoch == 10:
+            raise FeedUnavailable()
+        return report_for(payload, epoch, signing)
+    monkeypatch.setattr(scheduled, 'fetch', fetch_new)
+    result = run(scheduled_case)
+    assert result['epoch'] == 11 and not result['allBurn']
+    assert result['missingAccountingEpochs'] == [10]
+    assert seen == [10, 11]
+    scheduled_case[2].update(block=4720, epoch=12)
+    scheduled_case[3].update(SubnetEpochIndex=22, LastEpochBlock=4680)
+    chain.preview.return_value.extras = {'reveal_round': 40_002_880}
+    data = dict(success=True, block_hash='0x'+'c'*64, extrinsic_id='4720-0')
+    chain.execute.return_value = SimpleNamespace(**data, to_dict=lambda: data)
+    monkeypatch.setattr(scheduled, 'fetch', lambda _, e: report_for(payload, e, signing))
+    result = run(scheduled_case)
+    assert result['epoch'] == 10 and not result['allBurn']
+    assert [r['record']['epoch'] for r in journal_rows(scheduled_case[0])
+            if r['record']['accountingSource'] == 'signed_epoch'] == [11, 10]
+
+
+def scan_case(case, chain, first=10, persist=True):
+    import bittensor as bt
+    from everyframe_validator.core.chain_scope import scope
+    root, config, view, _ = case
+    return asyncio.run(scheduled.available_accounting(bt.Client(), root, config,
+        scope(config['network'], config['netuid']), view, journal_rows(root), first, persist))
+
+
+def test_authenticated_empty_report_does_not_delay_paid_work(scheduled_case, chain, payload, signing, monkeypatch):
+    scheduled_case[2].update(block=4720, epoch=12)
+    def fetch(_, e):
+        if e == 10: raise FeedUnavailable()
+        return report_for(payload, e, signing, empty=e == 11)
+    monkeypatch.setattr(scheduled, 'fetch', fetch)
+    p, epoch, info = scan_case(scheduled_case, chain)
+    assert epoch == 12 and p['artifact']['window']['scores']
+    assert info['missingAccountingEpochs'] == [10]
+    assert info['emptyAccountingEpochs'] == [11]
+    chain.execute.assert_not_called()
+
+
+@pytest.mark.parametrize('failure', [ValueError('invalid signature'), TimeoutError('transport'), RuntimeError('HTTP 500')])
+def test_gap_scan_never_treats_errors_as_absence(scheduled_case, chain, failure, monkeypatch):
+    scheduled_case[2].update(block=4720, epoch=12)
+    seen = []
+    def fetch(_, e):
+        seen.append(e)
+        if e == 10: raise FeedUnavailable()
+        raise failure
+    monkeypatch.setattr(scheduled, 'fetch', fetch)
+    with pytest.raises(type(failure)):
+        scan_case(scheduled_case, chain)
+    assert seen == [10, 11]
+    chain.execute.assert_not_called()
+
+
+def test_gap_scan_invalid_signed_report_stops_before_newer_work(scheduled_case, chain, payload, signing, monkeypatch):
+    scheduled_case[2].update(block=4720, epoch=12)
+    def fetch(_, e):
+        if e == 10: raise FeedUnavailable()
+        p = json.loads(report_for(payload, e, signing))
+        p['payload']['artifact']['minerShare'] = '1'
+        return json.dumps(p).encode()
+    monkeypatch.setattr(scheduled, 'fetch', fetch)
+    from cryptography.exceptions import InvalidSignature
+    with pytest.raises(InvalidSignature):
+        scan_case(scheduled_case, chain)
+    assert not (scheduled_case[0] / 'accounting-scan.json').exists()
+
+
+def test_many_missing_reports_rotate_without_burning_or_forgetting(scheduled_case, chain, payload, signing, monkeypatch):
+    scheduled_case[2].update(block=20000, epoch=50)
+    def fetch(_, e):
+        if e != 50: raise FeedUnavailable()
+        return report_for(payload, e, signing)
+    monkeypatch.setattr(scheduled, 'fetch', fetch)
+    p, _, info = scan_case(scheduled_case, chain)
+    assert p is None and not info['accountingScanComplete']
+    assert len(info['missingAccountingEpochs']) == 32
+    p, epoch, _ = scan_case(scheduled_case, chain)
+    assert epoch == 50 and p is not None
+    assert json.loads((scheduled_case[0]/'accounting-scan.json').read_text())['nextEpoch'] == 10
+    assert not journal_rows(scheduled_case[0])
+
+
+def test_dry_gap_scan_does_not_change_scan_position(scheduled_case, chain):
+    scheduled_case[2].update(block=20000, epoch=50)
+    scan_case(scheduled_case, chain, persist=False)
+    assert not (scheduled_case[0] / 'accounting-scan.json').exists()
 
 
 @pytest.mark.parametrize('offset', [0, 4, 91, 355, 360])

@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from itertools import chain
 
 from . import cadence
 from .core.chain_scope import scope, read_network, rpc_options, check_authorization
@@ -19,6 +20,7 @@ from .feed import fetch, verify, FeedUnavailable
 from .state import atomic_json, journal_rows, read_private
 
 CADENCE = 'chain-epoch-v2'
+MAX_ACCOUNTING_PROBES = 32
 
 
 async def reconcile_only(root, config):
@@ -111,6 +113,70 @@ def accounting_cursor(root, view, rows, persist):
     while epoch in represented:
         epoch += 1
     return epoch
+
+
+async def available_accounting(client, root, config, domain, view, rows, first, persist):
+    """Find signed work across sparse publication, never consume a 404.
+
+    The submission journal alone consumes paid reports. Missing reports remain
+    eligible on every later scan. A bounded rotating scan prevents many holes
+    from starving newer reports; invalid signatures/transport failures stop it.
+    Authenticated zero-work reports need no dedicated chain slot ahead of work.
+    """
+    path = root / 'accounting-scan.json'
+    try:
+        scan = read_private(path)
+    except FileNotFoundError:
+        scan = {'version': 1, 'nextEpoch': first}
+    if (scan.get('version') != 1 or type(scan.get('nextEpoch')) is not int
+            or scan['nextEpoch'] < 0):
+        raise ValueError('invalid_accounting_scan_cursor')
+    last = view['epoch']
+    start = scan['nextEpoch'] if first <= scan['nextEpoch'] <= last else first
+    represented = {r['record']['epoch'] for r in rows if r['state'] != 'not_submitted'
+                   and r['record'].get('accountingSource') == 'signed_epoch'}
+    missing, empty, probes = [], [], 0
+    first_empty = None
+
+    def checkpoint(next_epoch):
+        if persist:
+            atomic_json(path, {'version': 1, 'nextEpoch': next_epoch})
+
+    for epoch in chain(range(start, last + 1), range(first, start)):
+        if epoch in represented:
+            continue
+        if probes >= MAX_ACCOUNTING_PROBES:
+            checkpoint(epoch)
+            return None, first, {'missingAccountingEpochs': missing,
+                                'emptyAccountingEpochs': empty, 'accountingScanComplete': False}
+        probes += 1
+        try:
+            raw = await asyncio.to_thread(fetch, config['feed'], epoch)
+        except FeedUnavailable:
+            missing.append(epoch)
+            continue
+        payload = verify(raw, config['publicKey'], domain, epoch)
+        artifact = payload['artifact']
+        if (artifact['finalizedBlock'] > view['block']
+                or artifact['blocksPerEpoch'] != view['params']['tempo'] + 1
+                or artifact['endBlockHash'] != await client._substrate.block_hash(artifact['endBlock'])
+                or artifact['closeBlockHash'] != await client._substrate.block_hash(artifact['endBlock'] - 1)):
+            raise ValueError('epoch chain provenance mismatch')
+        cache = root / 'accepted'
+        cache.mkdir(mode=0o700, exist_ok=True)
+        atomic_json(cache / (str(epoch) + '.json'), {'payloadHash': digest(payload)}, immutable=True)
+        seal_epoch(root / 'epochs.db', artifact)
+        if any(r['earningsMicrousd'] + r['surchargeMicrousd'] > 0 for r in artifact['window']['scores']):
+            checkpoint(first)
+            return payload, epoch, {'missingAccountingEpochs': missing,
+                                    'emptyAccountingEpochs': empty, 'accountingScanComplete': True}
+        empty.append(epoch)
+        if first_empty is None:
+            first_empty = (payload, epoch)
+    checkpoint(first)
+    payload, epoch = first_empty or (None, first)
+    return payload, epoch, {'missingAccountingEpochs': missing,
+                            'emptyAccountingEpochs': empty, 'accountingScanComplete': True}
 
 
 def reserve(db, run_id, record, consent):
@@ -221,24 +287,20 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
         if epoch <= view['epoch']:
             source = 'missing_epoch_burn'
             try:
-                raw = await asyncio.to_thread(fetch, config['feed'], epoch)
-            except FeedUnavailable:
+                payload, selected, scan = await asyncio.wait_for(available_accounting(
+                    client, root, config, domain, view, rows, epoch, submit), timeout=30)
+            except asyncio.TimeoutError:
+                return {**common, 'state': 'waiting', 'reason': 'accounting_scan_timeout'}
+            common.update(scan)
+            if not scan['accountingScanComplete']:
+                return {**common, 'state': 'waiting', 'reason': 'accounting_scan_incomplete'}
+            if payload is None:
                 if missing == 'wait':
                     return {**common, 'state': 'waiting', 'reason': 'accounting_not_published'}
                 if view['block'] < (epoch + 1) * (view['params']['tempo'] + 1) + grace:
                     return {**common, 'state': 'waiting', 'reason': 'accounting_publication_grace'}
             else:
-                payload = verify(raw, config['publicKey'], domain, epoch)
-                artifact = payload['artifact']
-                if (artifact['finalizedBlock'] > view['block']
-                        or artifact['blocksPerEpoch'] != view['params']['tempo'] + 1
-                        or artifact['endBlockHash'] != await client._substrate.block_hash(artifact['endBlock'])
-                        or artifact['closeBlockHash'] != await client._substrate.block_hash(artifact['endBlock'] - 1)):
-                    raise ValueError('epoch chain provenance mismatch')
-                cache = root / 'accepted'
-                cache.mkdir(mode=0o700, exist_ok=True)
-                atomic_json(cache / (str(epoch) + '.json'), {'payloadHash': digest(payload)}, immutable=True)
-                seal_epoch(root / 'epochs.db', artifact)
+                epoch = selected
                 source = 'signed_epoch'
         elif missing == 'wait':
             return {**common, 'state': 'waiting', 'reason': 'no_unsubmitted_accounting'}
