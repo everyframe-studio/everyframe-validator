@@ -25,6 +25,9 @@ jobs:
           /tmp/everyframe-validator-wheel/bin/pip install dist/*.whl
           cd /tmp
           /tmp/everyframe-validator-wheel/bin/everyframe-validator --help
+          /tmp/everyframe-validator-wheel/bin/everyframe-publish-assignment --help
+          /tmp/everyframe-validator-wheel/bin/everyframe-finalize-epoch --help
+          /tmp/everyframe-validator-wheel/bin/everyframe-recover-rewards --help
   container:
     runs-on: ubuntu-24.04
     steps:

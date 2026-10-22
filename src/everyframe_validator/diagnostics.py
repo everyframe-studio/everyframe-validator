@@ -11,6 +11,9 @@ from .wallet import WalletConfigurationError
 
 
 ERRORS = {
+    'invalid_assignment_chain_schedule': ('invalid_assignment_schedule', 'The canonical assignment could not be bound to finalized epoch-start blocks. No weights were submitted.'),
+    'assignment_does_not_match_finalized_chain_epoch': ('invalid_assignment_schedule', 'The signed assignment does not match this finalized chain epoch. Preserve state and check the publisher; no alternate report was selected.'),
+    'assigned_accounting_provenance_mismatch': ('assigned_accounting_mismatch', 'The accounting hash or chain provenance does not match the signed assignment. No weights were submitted.'),
     "invalid_wallet_path": ("invalid_wallet_path", "Use an absolute parent directory containing wallet names for --wallet-path, not the named wallet directory."),
     "invalid_wallet_configuration": ("invalid_wallet_configuration", "Check the wallet and hotkey names. --wallet-path must be their parent directory."),
     "wallet_path_includes_name": ("wallet_path_includes_name", "walletPath already includes the wallet name, which the SDK appends again. Correct only walletPath to the suggested parent, then rerun doctor. No profile or wallet was changed."),

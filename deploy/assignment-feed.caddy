@@ -1,0 +1,19 @@
+# Import inside the existing subnet.everyframe.studio site block.
+@mainnetAssignment {
+    method GET HEAD
+    path_regexp mainnetAssignment ^/mainnet/v1/validator/allocations/[0-9]+\.json$
+}
+handle @mainnetAssignment {
+    uri strip_prefix /mainnet/v1/validator/allocations
+    root * /var/www/everyframe-mainnet-allocations
+    file_server
+}
+@testnetAssignment {
+    method GET HEAD
+    path_regexp testnetAssignment ^/v1/validator/allocations/[0-9]+\.json$
+}
+handle @testnetAssignment {
+    uri strip_prefix /v1/validator/allocations
+    root * /var/www/everyframe-testnet-allocations
+    file_server
+}

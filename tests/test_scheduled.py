@@ -7,8 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from everyframe_validator import cadence, scheduled, application, runner
-from everyframe_validator.feed import FeedUnavailable
+from everyframe_validator import cadence, scheduled, application, runner, assignment
+from everyframe_validator.feed import FeedUnavailable, verify
+from everyframe_validator.core.chain_scope import scope
 from everyframe_validator.state import journal_rows
 from everyframe_validator.publish import sign
 from test_runner import authorize
@@ -16,18 +17,27 @@ from conftest import hot
 
 
 @pytest.fixture
-def scheduled_case(profile, chain, monkeypatch):
+def scheduled_case(profile, chain, monkeypatch, payload, signing):
     root, config = profile
     authorize(root, config, maximum=20)
     view = dict(block=4000, blockHash='0x'+'a'*64, params=chain.params,
                 neurons=[vars(n) for n in chain.neurons], owner=hot(10), ownerHotkey=hot(0),
                 lastUpdate=0, pending=[], epoch=10)
-    s = dict(SubnetEpochIndex=20, LastEpochBlock=3960, LastMechansimStepBlock=3960,
+    s = dict(SubnetEpochIndex=20, LastEpochBlock=3975, LastMechansimStepBlock=3975,
              PendingEpochAt=0, RevealPeriodEpochs=2, Timestamp=1_700_000_000_000,
-             epochStartedAtMs=1_700_000_000_000 - 40 * 12000)
+             epochStartedAtMs=1_700_000_000_000 - 25 * 12000,
+             previousChainEpochStart=3615, chainEpochStartHash='0x'+'a'*64)
     monkeypatch.setattr(cadence, 'snapshot', AsyncMock(side_effect=lambda *a: dict(view)))
     monkeypatch.setattr(scheduled, 'schedule', AsyncMock(side_effect=lambda *a: dict(s)))
-    monkeypatch.setattr(scheduled, 'fetch', lambda *a: (_ for _ in ()).throw(FeedUnavailable()))
+    monkeypatch.setattr(scheduled, 'fetch', lambda _, e: report_for(payload,e,signing,empty=True))
+    def dispatch(base, epoch):
+        if base == assignment.feed_url(config['feed']):
+            target, mode = assignment.target(view,s)
+            p = (verify(scheduled.fetch(config['feed'],target),signing[1],scope('test'),target)
+                 if mode == 'signed_epoch' else None)
+            return json.dumps(sign(assignment.project(scope('test'),view,s,p),signing[0])).encode()
+        return scheduled.fetch(base,epoch)
+    monkeypatch.setattr(assignment,'fetch',dispatch)
     monkeypatch.setattr(application, 'observe', AsyncMock(return_value=[]))
     chain.preview.return_value.extras = {'reveal_round': 40_000_000}
     return root, config, view, s
@@ -40,7 +50,8 @@ def run(case, submit=True, missing='burn'):
 
 def advance(case, chain):
     case[2].update(block=4360, epoch=11)
-    case[3].update(SubnetEpochIndex=21, LastEpochBlock=4320, LastMechansimStepBlock=4320)
+    case[3].update(SubnetEpochIndex=21, LastEpochBlock=4336, LastMechansimStepBlock=4336,
+                   previousChainEpochStart=3975)
     chain.preview.return_value.extras = {'reveal_round': 40_001_440}
     data = dict(success=True, block_hash='0x'+'c'*64, extrinsic_id='4360-0')
     chain.execute.return_value = SimpleNamespace(**data, to_dict=lambda: data)
@@ -59,8 +70,7 @@ def test_bad_wallet_fails_before_epoch_wait_without_signing(scheduled_case, chai
     status = json.loads((scheduled_case[0] / 'status.json').read_text())
     assert status['code'] == 'wallet_hotkey_missing'
     assert status['walletPaths']['hotkeyFile'] == chain.wallet.hotkey_file.path
-    cursor = json.loads((scheduled_case[0] / 'reward-schedule.json').read_text())
-    assert cursor['startEpoch'] == scheduled_case[2]['epoch']
+    assert not (scheduled_case[0] / 'reward-schedule.json').exists()
 
 
 def test_actual_signer_identity_checked_before_reservation(scheduled_case, chain):
@@ -96,16 +106,12 @@ def test_once_per_chain_epoch_even_with_changed_accounting(scheduled_case, chain
     assert chain.execute.await_count == 1
 
 
-def test_late_report_waits_next_chain_epoch_and_retains_cursor(scheduled_case, chain, payload, signing, monkeypatch):
-    assert run(scheduled_case)['accountingSource'] == 'missing_epoch_burn'
-    monkeypatch.setattr(scheduled, 'fetch', lambda *a: json.dumps(sign(payload, signing[0])).encode())
-    scheduled_case[2].update(block=4100)
-    assert run(scheduled_case)['reason'] == 'chain_epoch_already_committed'
-    advance(scheduled_case, chain)
+def test_missing_assignment_waits_even_with_burn_flag(scheduled_case, chain, monkeypatch):
+    monkeypatch.setattr(scheduled,'fetch',lambda *a: (_ for _ in ()).throw(FeedUnavailable()))
     result = run(scheduled_case)
-    assert result['accountingSource'] == 'signed_epoch'
-    assert result['epoch'] == 10  # not discarded for the newer empty epoch 11
-    assert chain.execute.await_count == 2
+    assert result['reason'] == 'canonical_assignment_or_report_not_published'
+    chain.execute.assert_not_called()
+    assert journal_rows(scheduled_case[0]) == []
 
 
 def test_signed_report_never_repeated(scheduled_case, chain, payload, signing, monkeypatch):
@@ -129,31 +135,16 @@ def report_for(payload, epoch, signing, empty=False):
     return json.dumps(sign(p, signing[0])).encode()
 
 
-def test_gap_does_not_block_newer_report_and_late_gap_is_not_lost(scheduled_case, chain, payload, signing, monkeypatch):
-    # Epoch 10 was absent; its burn must not consume the late report.
-    run(scheduled_case)
-    advance(scheduled_case, chain)
-    seen = []
-    def fetch_new(feed, epoch):
-        seen.append(epoch)
-        if epoch == 10:
-            raise FeedUnavailable()
-        return report_for(payload, epoch, signing)
-    monkeypatch.setattr(scheduled, 'fetch', fetch_new)
-    result = run(scheduled_case)
-    assert result['epoch'] == 11 and not result['allBurn']
-    assert result['missingAccountingEpochs'] == [10]
-    assert seen == [10, 11]
-    scheduled_case[2].update(block=4720, epoch=12)
-    scheduled_case[3].update(SubnetEpochIndex=22, LastEpochBlock=4680)
-    chain.preview.return_value.extras = {'reveal_round': 40_002_880}
-    data = dict(success=True, block_hash='0x'+'c'*64, extrinsic_id='4720-0')
-    chain.execute.return_value = SimpleNamespace(**data, to_dict=lambda: data)
-    monkeypatch.setattr(scheduled, 'fetch', lambda _, e: report_for(payload, e, signing))
-    result = run(scheduled_case)
-    assert result['epoch'] == 10 and not result['allBurn']
-    assert [r['record']['epoch'] for r in journal_rows(scheduled_case[0])
-            if r['record']['accountingSource'] == 'signed_epoch'] == [11, 10]
+def test_old_backlog_and_scan_position_do_not_select_report(scheduled_case, chain):
+    from everyframe_validator.state import atomic_json
+    root=scheduled_case[0]
+    atomic_json(root/'reward-schedule.json',{'version':1,'startEpoch':1,'adoptedAtBlock':100})
+    atomic_json(root/'accounting-scan.json',{'version':1,'nextEpoch':2})
+    before = [(root/f).read_bytes() for f in ('reward-schedule.json','accounting-scan.json')]
+    assert run(scheduled_case)['epoch'] == 10
+    assert [(root/f).read_bytes() for f in ('reward-schedule.json','accounting-scan.json')] == before
+    advance(scheduled_case,chain)
+    assert run(scheduled_case)['epoch'] == 11
 
 
 def scan_case(case, chain, first=10, persist=True):
@@ -230,26 +221,27 @@ def test_dry_gap_scan_does_not_change_scan_position(scheduled_case, chain):
 def test_actual_scan_deadline_waits_without_signing(scheduled_case, chain, monkeypatch):
     async def slow(*args):
         await asyncio.sleep(1)
-    monkeypatch.setattr(scheduled, 'available_accounting', slow)
+    monkeypatch.setattr(assignment, 'load', slow)
     monkeypatch.setattr(scheduled, 'ACCOUNTING_SCAN_TIMEOUT_SECONDS', 0.001)
     result = run(scheduled_case)
-    assert result['reason'] == 'accounting_scan_timeout'
+    assert result['reason'] == 'assignment_fetch_timeout'
     chain.execute.assert_not_called()
     assert not journal_rows(scheduled_case[0])
 
 
 @pytest.mark.parametrize('offset', [0, 4, 91, 355, 360])
 def test_early_window_bounds(scheduled_case, chain, offset):
-    scheduled_case[2]['block'] = 3960 + offset
+    scheduled_case[2]['block'] = scheduled_case[3]['LastEpochBlock'] + offset
     assert run(scheduled_case)['reason'] == 'waiting_for_chain_epoch_window'
     chain.execute.assert_not_called()
 
 
-def test_cursor_stored_while_outside_window(scheduled_case, chain):
+def test_waiting_does_not_adopt_a_local_accounting_backlog(scheduled_case, chain):
     scheduled_case[2]['block'] = 4100
     assert run(scheduled_case)['state'] == 'waiting'
     advance(scheduled_case, chain)
-    assert run(scheduled_case)['epoch'] == 10
+    assert run(scheduled_case)['epoch'] == 11
+    assert not (scheduled_case[0]/'reward-schedule.json').exists()
 
 
 def test_dry_run_never_signs_or_adopts_cursor(scheduled_case, chain):
@@ -260,7 +252,7 @@ def test_dry_run_never_signs_or_adopts_cursor(scheduled_case, chain):
 
 
 def test_legacy_pending_occupies_current_epoch(scheduled_case, chain):
-    scheduled_case[2]['pending'] = [{'commit_block': 3970}]
+    scheduled_case[2]['pending'] = [{'commit_block': 3980}]
     assert run(scheduled_case)['reason'] == 'chain_epoch_already_committed'
     chain.execute.assert_not_called()
 
@@ -272,8 +264,9 @@ def test_legacy_submitted_accounting_is_not_replayed(scheduled_case, chain):
         db.execute('INSERT INTO weight_runs VALUES(?,?,?,?)',
                    ('old', 'commit_finalized', json.dumps(prior), json.dumps({'extrinsic_id': '3900-0'})))
     result = run(scheduled_case)
-    assert result['epoch'] == 11
-    assert result['accountingSource'] == 'standby_burn'
+    assert result['nextAccountingEpoch'] == 10
+    assert result['reason'] == 'assigned_report_already_submitted'
+    chain.execute.assert_not_called()
 
 
 def test_unknown_never_retries(scheduled_case, chain):
@@ -367,7 +360,7 @@ def test_near_round_collision_rejected(scheduled_case, chain):
 
 def test_slow_prepare_blocks_before_broadcast(scheduled_case, chain):
     async def slow(*args):
-        scheduled_case[2]['block'] = 4055
+        scheduled_case[2]['block'] = 4070
         return chain.preview.return_value
     chain.preview.side_effect = slow
     with pytest.raises(ValueError, match='chain_changed_before_broadcast'):

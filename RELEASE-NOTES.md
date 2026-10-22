@@ -1,3 +1,25 @@
+# EveryFrame Validator v0.5.0
+
+- Select one shared, signed accounting assignment per finalized chain epoch.
+  Local backlog, start date and scan position no longer choose scoring inputs.
+- Verify the assignment's epoch-start block/hash, deterministic accounting cutoff,
+  exact report hash and chain provenance, while calculating weights independently.
+- Missing assignments/reports always wait, even with the legacy burn flag. A
+  burn requires authenticated zero-work or a signed no-new-window assignment.
+- Preserve old journals, cursors and commitments. Already submitted historical
+  reports are not replayed during cutover. Doctor checks canonical feed readiness.
+- Owner accounting supports reviewed shortfall carry-forward in future reports,
+  with original work deduplication, pool limits, in-flight reservations and
+  explicit global-emission reconciliation. A seal is never payment confirmation.
+- Bundle owner-only finalization, recovery audit/approval/reconciliation tools and
+  a restricted assignment-feed publisher. These are not run by the independent
+  validator loop. Publishing a package does not approve any financial correction.
+- A dry-run canary can check the canonical plan outside the signing window;
+  actual signing retains its early-window and zero-fee restrictions.
+- Coordinate publisher/owner/independent deployment. v0.4.1 does not contain this
+  protocol. Verify assignment-feed readiness before switching a signing process;
+  upgrading a release does not automatically activate mainnet or update peers.
+
 # EveryFrame Validator v0.4.1
 
 - Check configured wallet paths and public identity during init and authorize,

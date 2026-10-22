@@ -1,0 +1,33 @@
+[Unit]
+Description=EveryFrame SN117 signed accounting assignment feed (no chain writes)
+After=network-online.target everyframe-mainnet-publisher.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=everyframe-subnet
+Group=everyframe-subnet
+WorkingDirectory=/opt/everyframe-validator-publisher-v0.5.0
+Environment=PYTHONPATH=/opt/everyframe-validator-publisher-v0.5.0/src
+Environment=BITTENSOR_RUNTIME_CACHE_DIR=/var/lib/everyframe-mainnet-assignments/runtime-cache
+ExecStart=/opt/everyframe-mainnet-publisher-20260928/.venv/bin/python -m everyframe_validator.owner.assignment_service --epochs /var/lib/everyframe-mainnet-publisher/epochs.db --bindings /var/lib/everyframe-mainnet-publisher/resolved-bindings.json --state-dir /var/lib/everyframe-mainnet-assignments --public-epochs /var/www/everyframe-mainnet-epochs --public-assignments /var/www/everyframe-mainnet-allocations
+LoadCredential=accounting-signing-key:/etc/everyframe-subnet/mainnet117/coordinator.pem
+StateDirectory=everyframe-mainnet-assignments
+StateDirectoryMode=0700
+RuntimeDirectory=everyframe-mainnet-assignments
+RuntimeDirectoryMode=0700
+TimeoutStartSec=150
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/everyframe-mainnet-assignments /var/www/everyframe-mainnet-epochs /var/www/everyframe-mainnet-allocations /run/everyframe-mainnet-assignments
+ReadOnlyPaths=/var/lib/everyframe-mainnet-publisher
+InaccessiblePaths=/etc/everyframe-subnet/mainnet117 /etc/everyframe-subnet/coordinator.env /etc/everyframe-subnet/coordinator.pem /var/lib/everyframe-subnet/subnet.db
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryMax=768M
+TasksMax=64

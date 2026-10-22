@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "everyframe-validator"
-version = "0.4.1"
+version = "0.5.0"
 description = "Independent EveryFrame SN117 validator and signed epoch publisher"
 readme = "README.md"
 license = "Apache-2.0"
@@ -22,6 +22,9 @@ test = ["pytest>=8,<10", "build>=1,<2", "twine>=6,<7"]
 [project.scripts]
 everyframe-validator = "everyframe_validator.cli:main"
 everyframe-publish-epoch = "everyframe_validator.publish:main"
+everyframe-publish-assignment = "everyframe_validator.assignment_publisher:main"
+everyframe-finalize-epoch = "everyframe_validator.owner.finalize_epoch:cli"
+everyframe-recover-rewards = "everyframe_validator.owner.reward_recovery:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

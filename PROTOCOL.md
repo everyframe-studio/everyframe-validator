@@ -53,21 +53,45 @@ defer; the validator never invents work or changes chain settings to fit the vec
 
 Accounting epoch numbers come from finalized chain head divided by `tempo+1`, minus one.
 Scheduling slots instead use finalized `SubnetEpochIndex` and `LastEpochBlock`.
-404 means missing accounting, not an authenticated zero-work report. `run` defaults
-to a burn-only safety plan after publication grace; `--missing-accounting wait`
-disables that fallback. Invalid signatures or network errors never mean burn.
-The scheduler reserves at most one allocation per actual chain epoch and consumes
-each signed report once. Publication may be sparse after a publisher outage:
-a 404 does not consume an epoch or block a later verified report. Bounded scans
-rotate across gaps, retry missing epochs, and ignore already-submitted reports.
-Invalid signatures, invalid chain provenance, and transport errors stop the scan;
-they are never interpreted as absent accounting. Verified zero-work reports do
-not require dedicated burn slots ahead of paid work. A scan that reaches its
-probe/time budget waits rather than claiming the unchecked reports are empty.
-A missing-feed burn does not consume that report; a later report must use a
-different chain slot. Already submitted
-historical reports are not replayed. Finalized reveal and mechanism-step evidence
-are stored separately from transaction finality and do not prove alpha settlement.
+The v0.5.0 `chain-epoch-v3` scheduler uses an additional signed assignment at
+the sibling `allocations/{chainEpoch}.json` endpoint, never a local backlog.
+The accounting report format above remains compatible with older readers.
+
+Assignment payload fields are exactly `schema`, `policy`, `network`, `netuid`,
+`genesis`, `chainEpoch`, `chainEpochStart`, `chainEpochStartHash`,
+`previousChainEpochStart`, `cutoffBlock`, `accountingEpoch`, `blocksPerEpoch`,
+`mode` and `payloadHash`. Schema is `everyframe.validator.assignment.v1`, policy
+is `epoch-start-accounting-v1`; envelope signing is identical to report signing.
+Epoch starts and the previous start are read from finalized historical storage.
+Cutoff is the current chain start; target is `cutoffBlock // blocksPerEpoch - 1`.
+`signed_epoch` binds the full report payload hash. If the previous chain-start
+cutoff targeted the same report, mode is `scheduled_reuse_burn` with a null report
+hash: every validator computes the same verified owner-only burn instead of
+reallocating that report. No validator-specific history participates in selection.
+
+404 and transport failure wait, never stand in for a signed zero-work report.
+Assignments and accepted report hashes are immutable locally. A report already
+submitted under a prior policy cannot be replayed at cutover. Existing journals
+and pending commitments remain authoritative for duplicate/uncertainty guards.
+Finalized reveal and mechanism-step evidence are stored separately from transaction
+finality and do not prove alpha settlement.
 The complete payload hash (including bindings) is stored immutably;
 even another valid signature cannot revise an already accepted epoch locally.
-No discovery listing, latest pointer, S3 login, or owner SSH is needed.
+No discovery listing, mutable latest pointer, S3 login, or owner SSH is needed.
+
+## Missed-reward carry-forward
+
+New public score totals can include a reviewed correction to prior earnings.
+Original work is not recognized twice. Private source report hashes, recovery
+assessments and claim reservations remain in the owner ledger, committed by
+`sourceHash`, and are not leaked as job/payment evidence in the public projection.
+External validators still trust the operator's aggregate accounting, not an
+independent proof of the shortfall or a USD payout guarantee.
+
+A correction is original eligible earnings minus rewards already received under
+a finalized, all-validator review. An owner missed submission is insufficient.
+Pending commitments and uncertain observations defer review. Corrections use
+the future epoch's real remaining pool after current work; no old emission pool
+is added, no historical signed report is changed, and insufficient capacity stays
+outstanding. Sealing reserves a claim as in flight, not paid. A reviewed failed or
+partial outcome reopens only its unpaid remainder; unreconciled claims never retry.

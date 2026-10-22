@@ -7,27 +7,33 @@ provider API keys, GPU, Phala account, or miner TEE is required.
 
 ## Release status
 
-Version 0.4.1 provides a Linux amd64 image at
+Version 0.5.0 uses a shared signed accounting assignment for each chain epoch,
+replacing the validator-specific backlog that could make owner and independent
+weights diverge. It requires `/validator/allocations/{chainEpoch}.json` and a
+coordinated owner/independent-validator cutover; publication does not switch
+running validators automatically. See [upgrade instructions](#upgrade-an-existing-validator-to-v050).
+
+Version 0.5.0 provides a Linux amd64 image at
 `ghcr.io/everyframe-studio/everyframe-validator:latest` and versioned tags.
 It is **not published to PyPI**. Check [Releases](https://github.com/everyframe-studio/everyframe-validator/releases)
 for published versions; see [RELEASING.md](RELEASING.md).
-Version 0.4.1 fixes legacy wallet compatibility: `defaultpub.txt` is not required
+It includes v0.4.1's legacy wallet compatibility: `defaultpub.txt` is not required
 when the existing hotkey file contains public metadata. Setup and doctor now
 identify incorrect wallet roots before signing-mode epoch waits.
-It retains v0.4.0's chain-epoch scheduling and sparse accounting recovery.
 It uses Finney RPC, at most one allocation per actual chain epoch,
-60-second polling, a 100-block minimum submission gap, and a durable signed-report
-queue. v0.3.0's accounting-epoch cadence and v0.2.0's block refresh are superseded
-in v0.4.0; older images do not include these fixes.
+60-second polling, a 100-block minimum submission gap, immutable assignments and
+durable submission/recovery journals. Older report queues are preserved for audit
+but no longer select inputs. Reviewed missed rewards belong in future shared
+accounting, not validator-specific historical replays.
 Invalid signatures and network errors still block. No fake zero-work accounting
 is created. Installation never registers a wallet or authorizes signing.
 
 ## Trust model
 
 ```text
-EveryFrame reviewed accounting → owner-side finalizer → signed public epoch JSON
-                                                           ↓
-External validator: verify signer + chain + epoch → compute weights → own hotkey
+Reviewed accounting + confirmed shortfalls → finalizer → signed report
+                                               ↓
+Chain epoch → shared signed assignment → each validator verifies and scores locally
 ```
 
 Like SayGM, validators trust the operator's finalized accounting for genuine paid
@@ -82,7 +88,7 @@ docker compose up -d
 ```
 
 Use either the standalone Docker commands or Compose, not both with the same hotkey.
-Pin `:v0.4.1` or an immutable `@sha256:...` for reproducibility. The separate
+Pin `:v0.5.0` or an immutable `@sha256:...` for reproducibility. The separate
 [managed canary workflow](deploy/README.md) still requires immutable release
 digests; `image.txt` remains available for that advanced workflow only.
 
@@ -238,7 +244,7 @@ only the key, be owned by the validator user (container UID 10001), have mode
 `EVERYFRAME_RPC_API_KEY_FILE` environment entry when using that option.
 There is no silent fallback that could send a key to another endpoint.
 
-### Chain-epoch scheduling and missing-accounting burn
+### Canonical chain-epoch scheduling
 
 These are the defaults, shown explicitly:
 
@@ -257,25 +263,25 @@ Distinct chain epochs and sufficiently separated timelock rounds prevent a
 reward allocation from being overwritten by a same-window burn. Unsupported
 short tempos or rate limits block instead of weakening these safeguards.
 
-A missing feed gets 25 blocks of publication grace (bounded to the epoch length).
-The validator searches past missing reports (HTTP 404) for later signed work,
-without consuming missing epochs. Late reports remain eligible. Authenticated
-zero-work reports do not occupy separate chain slots ahead of positive work.
-Bounded scans rotate across gaps; an incomplete scan waits instead of burning.
-With `burn`, a completed scan with no available signed accounting produces a
-full-weight allocation to the verified subnet-owner burn UID, labelled
-`missing_epoch_burn`. It never creates a fake signed/zero-work
-artifact. Signature failures, conflicting accounting, timeouts, and other HTTP
-failures still block submission. Set `--missing-accounting wait` to disable
-the burn fallback. A later signed report is queued for a **different chain epoch**;
-it never replaces a burn inside the same reveal window. A durable cursor and
-submission journal prevent replay while permitting sparse reports. On first adoption it
-starts at the latest closed accounting window or after already-submitted work,
-whichever is later. Older missed/submitted work is not automatically replayed.
-When the queue is caught up, `standby_burn` prevents retaining a paid allocation
-indefinitely; it does not consume a signed report. `doctor`
-continues to report an absent feed; that describes
-accounting availability even when the run loop is configured to burn.
+Every validator fetches the **same signed assignment** for that chain epoch.
+The accounting target is `LastEpochBlock // (tempo + 1) - 1`, fixed at the
+epoch-start block, not the latest report seen at polling time. Assignments bind
+the chain-start hash, previous chain-start block, report epoch and full payload
+hash. Validators independently authenticate and calculate weights from that report.
+
+Local `reward-schedule.json`, `accounting-scan.json` and submission history never
+choose another report. Existing files remain intact for audit. HTTP 404, publisher
+outages and transport failures **wait**, even with the legacy `burn` option. Only
+authenticated zero-work accounting or a signed `scheduled_reuse_burn` assignment
+produces burn weights. Because accounting uses `tempo+1` while chain slots use
+actual epoch starts, two slots can target the same report; the second uses this
+deterministic signed burn rather than allocating the report twice.
+
+If an assigned report was already submitted under the previous policy, that
+validator waits instead of replaying it or picking a different backlog entry.
+Missing rewards are handled by reviewed owner-side carry-forward accounting in a
+new report, not by each validator independently replaying old weights. An owner
+missed submission alone does not prove that miners received no rewards.
 
 Finalized commits may queue while earlier commits await the chain's reveal
 delay, but never share a chain-epoch slot. They are initially recorded as
@@ -293,7 +299,12 @@ arguments are compatibility aliases for `chain`, not a way to restore unsafe
 refreshes. Existing commitments cannot be cancelled by stopping the process.
 Preserve journals, `reward-schedule.json`, `accounting-scan.json`, and authorizations.
 
-### Upgrade an existing validator to v0.4.1
+### Upgrade an existing validator to v0.5.0
+
+Coordinate the signing cutover with the subnet operator. First verify that doctor
+accepts the current `canonicalAssignment`; do not switch a signing process while
+the owner/peer rollout or assignment feed is not ready. v0.4.x cannot follow this
+assignment protocol and must be upgraded for synchronized inputs.
 
 Stop the old instance before starting another with the same hotkey. Keep the same
 state volume, wallet mounts, RPC configuration and signing/dry-run command.
@@ -304,18 +315,21 @@ For the root Compose setup (keep any existing signing override):
 
 ```bash
 docker compose stop validator
-export VALIDATOR_IMAGE=ghcr.io/everyframe-studio/everyframe-validator:v0.4.1
+export VALIDATOR_IMAGE=ghcr.io/everyframe-studio/everyframe-validator:v0.5.0
 docker compose pull validator
 docker compose run --rm --no-deps validator --version
+docker compose run --rm --no-deps validator doctor --state-dir /state
 docker compose up -d validator
 docker compose logs --tail 100 validator
 ```
 
-For source installations, install the v0.4.1 release into the service's virtual
+For source installations, install the v0.5.0 release into the service's virtual
 environment and restart that service with its existing state directory. Check
 `--version`, `status` and `doctor`. A finalized commit is not proof of payment;
-wait for reveal and application evidence. This wallet patch preserves support for
-signed fixed-41% reports and does not change rewards, chain parameters or accounting.
+wait for reveal and application evidence. This release changes accounting input
+selection, preserves signed fixed-41% support, and does not change chain parameters
+or rewrite historical reports. Owner-only reviewed recovery tools are documented
+in [OWNER-ACCOUNTING.md](OWNER-ACCOUNTING.md); independent validators do not run them.
 
 `status` can run while the validator is busy: it reads committed journal data and
 the last completed iteration without taking the signing-operation lock. The last
@@ -331,7 +345,7 @@ a guarantee that signing will succeed; offline mode cannot establish live readin
 After correcting an existing profile, rerun doctor, and restart only the existing
 validator instance when signing checks pass. Do not reinitialize or clear state.
 
-- `dry_run`: chain checks and signed accounting (or the configured missing-epoch burn fallback) produced a plan; no signature.
+- `dry_run`: chain checks and a canonical signed assignment produced a plan; no signature.
 - `waiting`: cooldown, pending-commit limit, or an absent epoch with `--missing-accounting wait`; check `reason`.
 - `commit_finalized`: submission finalized; it is not proof of reveal.
 - `application_observed`: weights verified across a mechanism step; not proof of alpha payment.

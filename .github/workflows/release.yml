@@ -69,6 +69,9 @@ jobs:
           /tmp/wheel-check/bin/pip install dist/*.whl
           cd /tmp
           /tmp/wheel-check/bin/everyframe-validator --help
+          /tmp/wheel-check/bin/everyframe-publish-assignment --help
+          /tmp/wheel-check/bin/everyframe-finalize-epoch --help
+          /tmp/wheel-check/bin/everyframe-recover-rewards --help
   publish:
     needs: [validate, test]
     runs-on: ubuntu-24.04
@@ -150,9 +153,13 @@ jobs:
           cp deploy/compose.yaml dist/compose.yaml
           cp deploy/deploy-release.py dist/deploy-release.py
           cp deploy/README.md dist/DEPLOYMENT.md
-          (cd dist && sha256sum *.whl *.tar.gz image.txt compose.yaml deploy-release.py DEPLOYMENT.md > SHA256SUMS)
+          cp OWNER-ACCOUNTING.md dist/OWNER-ACCOUNTING.md
+          cp deploy/everyframe-assignment-publisher.service dist/everyframe-assignment-publisher.service
+          cp deploy/everyframe-assignment-publisher.timer dist/everyframe-assignment-publisher.timer
+          cp deploy/assignment-feed.caddy dist/assignment-feed.caddy
+          (cd dist && sha256sum *.whl *.tar.gz image.txt compose.yaml deploy-release.py DEPLOYMENT.md OWNER-ACCOUNTING.md everyframe-assignment-publisher.service everyframe-assignment-publisher.timer assignment-feed.caddy > SHA256SUMS)
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --verify-tag --target "$SHA" --draft --title "Everyframe Validator $TAG" --generate-notes
+            gh release create "$TAG" --verify-tag --target "$SHA" --draft --title "EveryFrame Validator $TAG" --generate-notes
           fi
           test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true
           gh release upload "$TAG" dist/* --clobber

@@ -35,6 +35,24 @@ def sign(payload, key):
     return {"payload": payload, "signature": base64.b64encode(key.sign(canonical(payload).encode())).decode()}
 
 
+def load_signing_key(path, expected):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as f:
+        info = os.fstat(f.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise ValueError("signing_key_must_be_owner_only")
+        raw = f.read(16385)
+        if len(raw) > 16384:
+            raise ValueError("signing_key_too_large")
+        key = load_pem_private_key(raw, password=None)
+    if not isinstance(key, Ed25519PrivateKey):
+        raise ValueError("ed25519_required")
+    encoded = base64.b64encode(key.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)).decode()
+    if encoded != expected:
+        raise ValueError("unexpected_publisher_key")
+    return key
+
+
 def publish(args):
     profile = PROFILES[args.network]
     domain = scope(profile["network"], profile["netuid"])
@@ -42,17 +60,7 @@ def publish(args):
     a = load_epoch(args.epochs, domain["netuid"], args.epoch)
     bindings = strict_json(Path(args.bindings).read_bytes())
     payload = project(a, bindings)
-    fd = os.open(args.signing_key, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    with os.fdopen(fd, "rb") as f:
-        info = os.fstat(f.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
-            raise ValueError("signing_key_must_be_owner_only")
-        key = load_pem_private_key(f.read(16385), password=None)
-    if not isinstance(key, Ed25519PrivateKey):
-        raise ValueError("ed25519_required")
-    encoded = base64.b64encode(key.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)).decode()
-    if encoded != (args.expected_public_key or profile["publicKey"]):
-        raise ValueError("unexpected_publisher_key")
+    key = load_signing_key(args.signing_key, args.expected_public_key or profile["publicKey"])
     out = Path(args.output).absolute()
     if out.is_symlink():
         raise ValueError("output_directory_symlink")
