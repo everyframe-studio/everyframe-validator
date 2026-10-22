@@ -1,7 +1,8 @@
-"""One weight allocation per *chain* epoch, with a durable accounting cursor.
+"""One canonical signed accounting assignment per actual chain epoch.
 
-Accounting windows are not chain epochs. Never replace a missing-feed burn in
-the same chain epoch: its replacement belongs to the next scheduling slot.
+Accounting windows are not chain epochs. Private histories cannot select inputs.
+Legacy cursors remain on disk for audit; reviewed shortfalls belong in new owner
+accounting, not in per-validator replays of old reports.
 Observed weight application is deliberately NOT called an alpha payment.
 """
 import asyncio
@@ -11,7 +12,7 @@ import re
 import sqlite3
 from itertools import chain
 
-from . import cadence
+from . import cadence, assignment
 from .core.chain_scope import scope, read_network, rpc_options, check_authorization
 from .core.reward_policy import digest, seal_epoch
 from .core.validator import epoch_weight_plan
@@ -19,7 +20,7 @@ from .core.submission import prepare, recover
 from .feed import fetch, verify, FeedUnavailable
 from .state import atomic_json, journal_rows, read_private
 
-CADENCE = 'chain-epoch-v2'
+CADENCE = 'chain-epoch-v3'
 MAX_ACCOUNTING_PROBES = 32
 ACCOUNTING_SCAN_TIMEOUT_SECONDS = 30
 
@@ -62,6 +63,14 @@ async def schedule(client, domain, block):
     if type(epoch_time) is not int or not 0 < epoch_time <= s['Timestamp']:
         raise ValueError('chain_epoch_schedule_unavailable')
     s['epochStartedAtMs'] = epoch_time
+    s['chainEpochStartHash'], s['previousChainEpochStart'] = await asyncio.gather(
+        client._substrate.block_hash(s['LastEpochBlock']),
+        client.query(('SubtensorModule', 'LastEpochBlock'), [domain['netuid']], block=s['LastEpochBlock'] - 1))
+    if (not isinstance(s['chainEpochStartHash'], str)
+            or not re.fullmatch(r'0x[a-f0-9]{64}', s['chainEpochStartHash'])
+            or type(s['previousChainEpochStart']) is not int
+            or not 0 < s['previousChainEpochStart'] < s['LastEpochBlock']):
+        raise ValueError('chain_epoch_schedule_unavailable')
     return s
 
 
@@ -273,50 +282,42 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
             common['observationError'] = 'reward_application_evidence_unavailable'
         if any(r['state'] in ('unknown', 'submitting') for r in rows):
             return {**common, 'state': 'blocked', 'reason': 'uncertain_submission'}
-        # Store the cursor even outside the signing window: work arriving while
-        # waiting or while the feed is unavailable must not be skipped.
-        epoch = accounting_cursor(root, view, rows, submit)
+        # Recovery of an uncertain broadcast still takes precedence. Historical
+        # cursors stay intact for audit, but NEVER select current scoring inputs.
+        epoch, source = assignment.target(view, s)
         common['nextAccountingEpoch'] = epoch
-        # Recover/observe existing submissions and preserve the accounting cursor
-        # first, but do not hide a broken wallet behind an hours-long epoch wait.
+        common['assignmentPolicy'] = assignment.POLICY
         if submit:
             from .wallet import checked_wallet
             checked_wallet(config)
         reason = gate(view, s, rows)
         next_block = cadence.due_at(rows, view, interval)
-        if reason or view['block'] < next_block:
+        if reason == 'unsupported_epoch_submission_window' or (submit and (reason or view['block'] < next_block)):
             next_window = s['LastEpochBlock'] + (5 if view['block'] < s['LastEpochBlock'] + 5
                                                 else view['params']['tempo'] + 5)
             return {**common, 'state': 'blocked' if reason == 'unsupported_epoch_submission_window' else 'waiting',
                     'reason': reason or 'block_cadence', 'nextEligibleBlock': max(next_block, next_window)}
-        payload, source = None, 'standby_burn'
-        if epoch <= view['epoch']:
-            source = 'missing_epoch_burn'
-            scan_task = asyncio.create_task(available_accounting(
-                client, root, config, domain, view, rows, epoch, submit))
-            try:
-                payload, selected, scan = await asyncio.wait_for(
-                    scan_task, timeout=ACCOUNTING_SCAN_TIMEOUT_SECONDS)
-            except asyncio.TimeoutError:
-                # Python >=3.11 aliases asyncio.TimeoutError to TimeoutError.
-                # A transport timeout raised inside a completed task is not
-                # cancellation by our scan deadline, and must remain an error.
-                if not scan_task.cancelled():
-                    raise
-                return {**common, 'state': 'waiting', 'reason': 'accounting_scan_timeout'}
-            common.update(scan)
-            if not scan['accountingScanComplete']:
-                return {**common, 'state': 'waiting', 'reason': 'accounting_scan_incomplete'}
-            if payload is None:
-                if missing == 'wait':
-                    return {**common, 'state': 'waiting', 'reason': 'accounting_not_published'}
-                if view['block'] < (epoch + 1) * (view['params']['tempo'] + 1) + grace:
-                    return {**common, 'state': 'waiting', 'reason': 'accounting_publication_grace'}
-            else:
-                epoch = selected
-                source = 'signed_epoch'
-        elif missing == 'wait':
-            return {**common, 'state': 'waiting', 'reason': 'no_unsubmitted_accounting'}
+        if not submit:
+            common['signingWindowOpen'] = reason is None and view['block'] >= next_block
+            common['signingWindowReason'] = reason or ('block_cadence' if view['block'] < next_block else None)
+        load_task = asyncio.create_task(assignment.load(client, root, config, domain, view, s))
+        try:
+            payload, epoch, selected = await asyncio.wait_for(load_task, timeout=ACCOUNTING_SCAN_TIMEOUT_SECONDS)
+        except FeedUnavailable:
+            # No local fallback: a CDN 404 or publisher outage is not a signed
+            # declaration of zero work. All operators wait for the SAME inputs.
+            return {**common, 'state': 'waiting', 'reason': 'canonical_assignment_or_report_not_published'}
+        except asyncio.TimeoutError:
+            if not load_task.cancelled():
+                raise
+            return {**common, 'state': 'waiting', 'reason': 'assignment_fetch_timeout'}
+        source = selected['mode']
+        common['assignmentHash'] = digest(selected)
+        if source == 'signed_epoch' and any(
+                r['state'] != 'not_submitted' and r['record'].get('accountingSource', 'signed_epoch') == 'signed_epoch'
+                and r['record']['epoch'] == epoch for r in rows):
+            return {**common, 'state': 'waiting', 'reason': 'assigned_report_already_submitted',
+                    'note': 'Preserve the historical allocation; do not replay it or select a different report.'}
         def make_plan(v):
             args = (v['neurons'], config['validatorHotkey'], v['params'], v['owner'], v['ownerHotkey'])
             return epoch_weight_plan(payload['artifact'], payload['bindings'], *args) if payload else cadence.burn_plan(*args)
@@ -325,8 +326,9 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
         fresh_s = await schedule(client, domain, fresh['block'])
         if (fresh_s['SubnetEpochIndex'] != s['SubnetEpochIndex'] or fresh_s['LastEpochBlock'] != s['LastEpochBlock']
                 or fresh_s['RevealPeriodEpochs'] != s['RevealPeriodEpochs']
-                or fresh['params'] != view['params'] or gate(fresh, fresh_s, rows)
-                or make_plan(fresh) != plan or fresh['block'] < cadence.due_at(rows, fresh, interval)):
+                or fresh['params'] != view['params'] or (submit and gate(fresh, fresh_s, rows))
+                or make_plan(fresh) != plan or (submit and fresh['block'] < cadence.due_at(rows, fresh, interval))
+                or assignment.project(domain,fresh,fresh_s,payload) != selected):
             return {**common, 'state': 'deferred', 'reason': 'chain_changed_before_signing'}
         record = {**domain, 'block': fresh['block'], 'validatorHotkey': config['validatorHotkey'],
                   'plan': plan, 'versionKey': config['versionKey'], 'epoch': epoch, 'openEpoch': view['epoch'] + 1,
@@ -334,7 +336,8 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
                   'chainEpochStart': s['LastEpochBlock'], 'revealPeriodEpochs': s['RevealPeriodEpochs'],
                   'intervalBlocks': max(interval, fresh['params']['weights_rate_limit']),
                   'commitReveal': fresh['params']['commit_reveal_weights_enabled'],
-                  'accountingSource': source, 'payloadHash': digest(payload) if payload else None}
+                  'accountingSource': source, 'payloadHash': digest(payload) if payload else None,
+                  'assignmentHash': digest(selected), 'assignmentPolicy': assignment.POLICY}
         result = {**common, 'state': 'dry_run', 'epoch': epoch, 'weights': plan['quantized'],
                   'allBurn': plan['allBurn'], 'accountingSource': source}
         if not submit:
@@ -361,6 +364,7 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
                         or final_s['LastEpochBlock'] != s['LastEpochBlock']
                         or final_s['RevealPeriodEpochs'] != s['RevealPeriodEpochs']
                         or final['params'] != fresh['params'] or gate(final, final_s, rows)
+                        or assignment.project(domain,final,final_s,payload) != selected
                         or make_plan(final) != plan or final['lastUpdate'] != fresh['lastUpdate']
                         or final['pending'] != fresh['pending'] or final['block'] - record['block'] > 15):
                     raise ValueError('chain_changed_before_broadcast')

@@ -49,11 +49,11 @@ def parser():
     commands["run"].add_argument("--weight-cadence", choices=("chain", "epoch", "block"), default="chain",
                                 help="One allocation per actual chain epoch. Old epoch/block values are compatibility aliases for chain.")
     commands["run"].add_argument("--accounting-grace-blocks", type=int, default=25,
-                                help="In epoch mode, wait this many blocks after close before a missing-feed burn (default 25)")
+                                help="Legacy compatibility option; canonical assignments never infer burn from a missing feed")
     commands["run"].add_argument("--weight-interval-blocks", type=int, default=100,
                                 help="Minimum blocks between finalized submissions (default 100); 0 retains legacy epoch/reveal gating")
     commands["run"].add_argument("--missing-accounting", choices=("wait", "burn"), default="burn",
-                                help="Burn on absent latest epoch (HTTP 404) only, after epoch-mode grace; invalid data still blocks")
+                                help="Legacy compatibility option; canonical mode always waits on HTTP 404. Burns require authenticated zero-work or a signed reuse-burn assignment.")
     commands["doctor"].add_argument("--offline", action="store_true", help="Skip RPC and feed checks")
     commands["authorize"].add_argument("--days", type=int, default=30)
     commands["authorize"].add_argument("--max-submissions", type=int, default=1000)

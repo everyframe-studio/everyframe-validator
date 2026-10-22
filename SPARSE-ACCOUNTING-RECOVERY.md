@@ -1,5 +1,11 @@
 # Sparse accounting recovery
 
+Historical v0.4.0/v0.4.1 behavior below. The unreleased canonical-assignment
+patch supersedes local backlog scanning for weight selection: see
+[PROTOCOL.md](PROTOCOL.md). Preserve these old cursor files for audit; do not
+replay their backlog after upgrading. Reviewed reward shortfalls belong in new
+owner accounting and are shared by all validators.
+
 The publisher finalizes the newest closed accounting window. An RPC outage can
 leave a hole in its epoch numbers; recognition of eligible jobs carries forward
 through its private sealed-work ledger. Requiring every epoch number in sequence

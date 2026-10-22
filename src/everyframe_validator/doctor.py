@@ -3,7 +3,7 @@
 from .core.chain_scope import scope, check_authorization, read_network, rpc_options
 from .diagnostics import diagnostic
 from .wallet import checked_wallet, wallet_paths
-from .feed import fetch, verify, FeedUnavailable
+from .feed import fetch, FeedUnavailable
 from .state import (
     private_directory,
     load_config,
@@ -126,25 +126,27 @@ async def doctor(path, offline=False):
                 if not member or member.validator_permit is not True:
                     raise ValueError("validator has no permit")
                 checks.append({"name": "permit", "ok": True, "uid": member.uid})
+                from . import assignment
+                from .scheduled import schedule
+                try:
+                    view = {'block':head,'params':params}
+                    s = await schedule(client,domain,head)
+                    raw = await asyncio.to_thread(fetch,assignment.feed_url(c['feed']),s['SubnetEpochIndex'])
+                    selected = assignment.authenticate(raw,c['publicKey'],domain,view,s)
+                    checks.append({'name':'canonicalAssignment','ok':True,'chainEpoch':s['SubnetEpochIndex'],
+                                   'accountingEpoch':selected['accountingEpoch'],'mode':selected['mode']})
+                    if selected['mode']=='signed_epoch':
+                        raw = await asyncio.to_thread(fetch,c['feed'],selected['accountingEpoch'])
+                        await assignment.verify_report(client,raw,c['publicKey'],domain,view,selected)
+                    checks.append({'name':'feed','ok':True,'epoch':selected['accountingEpoch']})
+                except FeedUnavailable:
+                    checks.append({'name':'canonicalAssignment','ok':False,'state':'waiting',
+                                   'code':'canonical_assignment_or_report_not_published',
+                                   'message':'The canonical signed assignment or its exact report is unavailable. No older report or HTTP-error burn will be substituted.'})
+                except Exception as exc:
+                    failure('canonicalAssignment',exc)
         except Exception as exc:
             failure("permit" if epoch is not None else "chain", exc)
-        if epoch is not None and epoch >= 0:
-            try:
-                raw = await asyncio.to_thread(fetch, c["feed"], epoch)
-                verify(raw, c["publicKey"], domain, epoch)
-                checks.append({"name": "feed", "ok": True, "epoch": epoch})
-            except FeedUnavailable:
-                checks.append(
-                    {
-                        "name": "feed",
-                        "ok": False,
-                        "state": "waiting",
-                        "code": "newest_epoch_not_published",
-                        "message": "The publisher has not published the latest closed epoch. No zero-work epoch will be substituted.",
-                    }
-                )
-            except Exception as exc:
-                failure("feed", exc)
     all_checks_ok = all(item["ok"] for item in checks)
     identity_deferred = any(item.get("publicIdentityVerified") is False for item in checks)
     return {

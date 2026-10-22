@@ -85,10 +85,16 @@ def test_doctor_is_readonly_and_works_under_lock(
     root, c = profile
     import everyframe_validator.doctor as module
     from everyframe_validator.publish import sign
-
-    monkeypatch.setattr(
-        module, "fetch", lambda *_: json.dumps(sign(payload, signing[0])).encode()
-    )
+    from everyframe_validator import assignment,scheduled
+    from everyframe_validator.core.chain_scope import scope
+    from unittest.mock import AsyncMock
+    s={'SubnetEpochIndex':20,'LastEpochBlock':3975,'previousChainEpochStart':3615,
+       'chainEpochStartHash':'0x'+'a'*64}
+    monkeypatch.setattr(scheduled,'schedule',AsyncMock(return_value=s))
+    view={'block':4000,'params':chain.params}
+    selected=assignment.project(scope('test'),view,s,payload)
+    monkeypatch.setattr(module,'fetch',lambda url,e: json.dumps(sign(
+        selected if url==assignment.feed_url(c['feed']) else payload,signing[0])).encode())
     before = sorted(p.name for p in root.iterdir())
     with locked(root):
         report = asyncio.run(doctor(root))

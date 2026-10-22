@@ -11,6 +11,15 @@ durable submission reservation, no uncertain-broadcast retry, and reveal checks.
 
 Packaging changes:
 
+- Canonical chain-epoch assignments replace local report queues for
+  scoring selection. Each validator still computes exact weights locally; the
+  signed assignment binds only accounting inputs and finalized chain timing.
+- Owner-only accounting is bundled under `everyframe_validator.owner`, separately
+  from the validator loop. This ports the tested private-provenance finalizer and
+  recovery ledger from the subnet verifier using package-relative imports.
+  Independent validation never invokes approvals, finalization or recovery
+  settlement. Public recovery totals use the existing signed score fields;
+  private evidence and financial approval stay with the publisher.
 - Relative imports and bundled immutable network profiles.
 - No owner CLI entrypoints or owner runner/SSH snapshot code.
 - Mainnet defaults to the SDK Finney endpoint; operators can explicitly select
