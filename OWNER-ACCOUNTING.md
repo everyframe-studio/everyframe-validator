@@ -1,4 +1,4 @@
-# Owner accounting and missed-reward recovery (v0.5.0)
+# Owner accounting and missed-reward recovery (v0.5.0+)
 
 Owner-only tools are bundled in `everyframe_validator.owner` and integrated into
 `everyframe-finalize-epoch`. Installing v0.5.0 does not approve recoveries, invoke
@@ -51,6 +51,14 @@ subtracts in-flight reservations too. Emission caps and consensus still apply;
 already distributed/burned historical emissions cannot be recreated.
 
 ## Commands
+
+For Etao-aware accounting, the v0.5.1 reader/publisher update adds
+`--chain-emission-policy` to finalization. Enable it only after coordinating all
+validator upgrades; v0.5.0 rejects the new signed evidence. Until that explicit
+cutover, installing compatible readers does not change the report policy.
+Recoveries then consume the chain-derived miner bucket, not an assumed 41% pool.
+Historical shortfalls still require global review; this update does not approve
+compensation automatically. See [PROTOCOL.md](PROTOCOL.md).
 
 Use the existing trusted publisher environment with the updated validator
 package available for strict JSON decoding. Preserve the DB and journals.

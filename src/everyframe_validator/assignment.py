@@ -11,8 +11,9 @@ from urllib.parse import urljoin
 
 from .core.chain_scope import check_record
 from .core.reward_policy import canonical, digest, seal_epoch
+from .core.emission_policy import CHAIN_SHARE_POLICY, verify_chain_evidence
 from .feed import fetch, strict_json, public_key, exact_keys, verify, validate_url
-from .state import atomic_json
+from .state import atomic_json, read_private
 
 SCHEMA = 'everyframe.validator.assignment.v1'
 POLICY = 'epoch-start-accounting-v1'
@@ -80,7 +81,28 @@ def authenticate(raw, key, domain, view, s):
     return p
 
 
-async def verify_report(client, raw, key, domain, view, assignment):
+async def verify_emissions(client, artifact, root=None, *, persist=False):
+    if artifact.get('minerSharePolicy') != CHAIN_SHARE_POLICY:
+        return
+    marker = {'policy': CHAIN_SHARE_POLICY, 'artifactHash': digest(artifact),
+              'closeBlockHash': artifact['closeBlockHash'], 'endBlockHash': artifact['endBlockHash']}
+    path = root / 'verified-emissions' / (str(artifact['epoch']) + '.json') if root else None
+    if path is not None:
+        try:
+            accepted = read_private(path)
+        except FileNotFoundError:
+            pass
+        else:
+            if accepted != marker:
+                raise ValueError('immutable_emission_evidence_conflict')
+            return
+    await verify_chain_evidence(client, artifact)
+    if path is not None and persist:
+        path.parent.mkdir(mode=0o700, exist_ok=True)
+        atomic_json(path, marker, immutable=True)
+
+
+async def verify_report(client, raw, key, domain, view, assignment, root=None, *, persist=False):
     epoch = assignment['accountingEpoch']
     payload = verify(raw, key, domain, epoch)
     a = payload['artifact']
@@ -89,6 +111,7 @@ async def verify_report(client, raw, key, domain, view, assignment):
             or a['endBlockHash'] != await client._substrate.block_hash(a['endBlock'])
             or a['closeBlockHash'] != await client._substrate.block_hash(a['endBlock'] - 1)):
         raise ValueError('assigned_accounting_provenance_mismatch')
+    await verify_emissions(client, a, root, persist=persist)
     return payload
 
 
@@ -103,7 +126,7 @@ async def load(client, root, config, domain, view, s):
     if assignment['mode'] == 'scheduled_reuse_burn':
         return None, epoch, assignment
     raw = await asyncio.to_thread(fetch, config['feed'], epoch)
-    payload = await verify_report(client,raw,config['publicKey'],domain,view,assignment)
+    payload = await verify_report(client,raw,config['publicKey'],domain,view,assignment,root,persist=True)
     accepted = root / 'accepted'
     accepted.mkdir(mode=0o700, exist_ok=True)
     atomic_json(accepted / (str(epoch) + '.json'), {'payloadHash': digest(payload)}, immutable=True)

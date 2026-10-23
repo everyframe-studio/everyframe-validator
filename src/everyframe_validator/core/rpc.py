@@ -4,6 +4,8 @@ import os
 import stat
 from urllib.parse import urlsplit
 
+DEFAULT_MAINNET_RPC = 'wss://archive.chain.opentensor.ai:443'
+
 
 def validate_endpoint(value):
     try:
@@ -23,7 +25,8 @@ def validate_endpoint(value):
 
 def endpoint(domain):
     override = os.environ.get('EVERYFRAME_RPC_URL', '')
-    return validate_endpoint(override) if override else domain['network']
+    return validate_endpoint(override) if override else (
+        DEFAULT_MAINNET_RPC if domain['network'] == 'finney' else domain['network'])
 
 
 def api_key():

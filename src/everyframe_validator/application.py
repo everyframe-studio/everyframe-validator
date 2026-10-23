@@ -99,7 +99,7 @@ async def inspect(client, row, head, pending):
 
 async def observe(client, root, rows, head, pending):
     reports = []
-    candidates = [r for r in rows if r['record'].get('cadence') == 'chain-epoch-v2'
+    candidates = [r for r in rows if r['record'].get('cadence') in ('chain-epoch-v2', 'chain-epoch-v3')
                   and r['state'] in ('commit_finalized', 'finalized', 'pending_reveal')
                   and not r['result'].get('rewardObservation', {}).get('terminal')]
     # Prioritize the oldest allocation, bounding each iteration's archive work.

@@ -19,7 +19,7 @@ PROFILES = {
 
 
 def read_network(domain):
-    """Finney by default; explicit RPC overrides still require genesis checks.
+    """Finney archive by default; RPC overrides still require genesis checks.
 
     No transparent fallback or discarded journals when historical state is absent.
     """

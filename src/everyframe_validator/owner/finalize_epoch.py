@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 
 from .reward_policy import POLICY, MINER_SHARE_TEXT, MINER_SHARE_POLICY, digest, recognition_snapshot, load_epoch, positive, seal_epoch
 from ..core.chain_scope import scope, add_network, check_database, read_network
+from ..core.emission_policy import CHAIN_SHARE_POLICY, collect_evidence, summarize
 from .reward_recovery import add_recoveries
 
 GENESIS = '0x8f9cf856bf558a14440e75569c9e58594757048d7b3a84b5d25f6bd978263105'
@@ -47,7 +48,7 @@ def fetch_price(end_ms):
     return candle_price(json.loads(raw), end_ms)
 
 
-async def collect_chain(client, netuid, network='test'):
+async def collect_chain(client, netuid, network='test', *, chain_emissions=True):
     domain = scope(network, netuid)
     if await client._substrate.block_hash(0) != domain['genesis']:
         raise ValueError('unexpected chain genesis')
@@ -86,7 +87,12 @@ async def collect_chain(client, netuid, network='test'):
 
     # Sum observed issuance rates over the whole epoch, not a made-up fixed
     # emission allowance or one current rate projected over historical blocks.
-    emissions = await asyncio.gather(*(emission(block) for block in range(start, end)))
+    evidence = None
+    if network == 'finney' and chain_emissions:
+        evidence = await collect_evidence(client, netuid, start, end)
+        emissions = [s[0] for s in evidence['samples']]
+    else:
+        emissions = await asyncio.gather(*(emission(block) for block in range(start, end)))
     total = sum(emissions)
     if total <= 0:
         raise ValueError('no positive alpha emission pool; defer rather than invent a USD pool')
@@ -96,14 +102,20 @@ async def collect_chain(client, netuid, network='test'):
             client.query(('SubtensorModule', 'SubnetOwnerCut'), [], block=end-1),
             client.query(('SubtensorModule', 'SubnetOwnerCut'), [], block=start),
             client.query(('SubtensorModule', 'RecycleOrBurn'), [netuid], block=end-1))
-        if (type(cut) is not int or not 0 <= cut < 65535 or old_cut != cut
-                or old_params.get('owner_cut_enabled') != params.get('owner_cut_enabled')
+        if (type(cut) is not int or not 0 <= cut < 65535
+                or (evidence is None and (old_cut != cut
+                    or old_params.get('owner_cut_enabled') != params.get('owner_cut_enabled')))
                 or type(params.get('owner_cut_enabled')) is not bool
                 or disposition not in ('Recycle', 'Burn')):
             raise ValueError('unsupported or changing mainnet emission policy')
         economics = {'minerShare': MINER_SHARE_TEXT, 'minerSharePolicy': MINER_SHARE_POLICY,
                      'ownerCutU16': cut, 'ownerCutEnabled': params['owner_cut_enabled'],
                      'unusedAllocation': disposition, 'accountingWindow': 'fixed-tempo-plus-one-v1'}
+        if evidence is not None:
+            total_rao, miner_rao = summarize(evidence, period)
+            economics.update(minerShare=str(Fraction(miner_rao, total_rao)),
+                             minerSharePolicy=CHAIN_SHARE_POLICY, emissionEvidence=evidence,
+                             ownerCutEnabled=int(evidence['samples'][-1][1][2]) > 0)
     return {'version': 2, 'policy': POLICY, **domain,
             'epoch': epoch, 'blocksPerEpoch': period, 'startBlock': start, 'endBlock': end,
             'endBlockHash': end_hash, 'closeBlockHash': close_hash, 'finalizedBlock': head,
@@ -140,7 +152,12 @@ async def main(args):
                     raise ValueError('sealed epoch chain changed')
                 print(json.dumps({'state': 'already_finalized', 'epoch': target, 'hash': digest(previous)}))
                 return
-        artifact = await collect_chain(client, args.netuid, domain['network'])
+        # Deliberate rollout gate: readers must be upgraded before the owner
+        # emits a format that v0.5.0 correctly rejects as unknown.
+        if getattr(args, 'chain_emission_policy', False):
+            artifact = await collect_chain(client, args.netuid, domain['network'])
+        else:
+            artifact = await collect_chain(client, args.netuid, domain['network'], chain_emissions=False)
         if Path(args.epochs).exists():
             # Idempotent tick: never rebuild a previously published epoch using
             # new approvals or a later oracle response.
@@ -197,6 +214,8 @@ def cli():
     parser.add_argument('--database', required=True, help='Trusted coordinator SQLite database')
     parser.add_argument('--epochs', required=True, help='Local immutable epoch artifact SQLite database')
     parser.add_argument('--recovery-bindings', help='Reviewed miner ID to hotkey map; enables approved recovery allocations for eligible current recipients')
+    parser.add_argument('--chain-emission-policy', action='store_true',
+                        help='Opt in to chain-derived miner budgets only after all validators accept chain-miner-emission-v1')
     parser.add_argument('--netuid', type=int, required=True)
     args = parser.parse_args()
     if not 0 < args.netuid < 4096:

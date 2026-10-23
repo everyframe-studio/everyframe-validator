@@ -23,15 +23,51 @@ includes owner-cut evidence, miner share, recycle/burn disposition,
 and `accountingWindow: fixed-tempo-plus-one-v1`. These fixed accounting windows are
 not represented as subnet-offset Yuma distribution epochs.
 
-New mainnet accounting uses `minerSharePolicy: fixed-41-percent-v1` and
-`minerShare: "0.41"`. The pool is total epoch alpha emissions × 0.41 × alpha/USD.
-Owner-cut evidence remains recorded but does not adjust this fixed accounting
-share. This does not change chain emission parameters or add a miner premium.
-Legacy signed reports without the policy field retain their original
-chain-derived share; they are neither rewritten nor replayed. Unknown policies
-or inconsistent shares are rejected. Upgrade feed consumers and the signing
-publisher before enabling the new finalizer: older validators reject the new
-field.
+Three mainnet policies can be read without reinterpreting historical reports:
+
+- No `minerSharePolicy`: the historical half-of-post-owner-cut calculation.
+- `fixed-41-percent-v1`: the historical explicit `minerShare: "0.41"` policy.
+- `chain-miner-emission-v1`: the new Etao-aware policy, with public
+  `emissionEvidence: {schema: "everyframe.emission.samples.v1", samples: [...]}`.
+
+The new policy includes exactly one sample per block in `[startBlock,endBlock)`,
+in order. Each is `[alphaOutRao, weights]`, where `weights` is the five-slot
+`[burn,recycle,owner,validator,miner]` vector as canonical decimal strings in
+u64::MAX parts. This avoids JSON/JavaScript precision loss. A block's observed
+integer `SubnetAlphaOutEmission` is paired with the parent block's
+`SubnetEmissionWeights`: coinbase runs during on_initialize, before extrinsics.
+There is no fallback from missing/invalid chain evidence to 41%, 33% or zero.
+
+Reconstruct each conservative miner credit as:
+`floor(alphaOutRao * floor(minerParts * 2^32 / (2^64-1)) / 2^32)`.
+This matches share truncation/integer flooring; an unobservable sub-rao component
+of alpha-out is not invented. Sum the integer credits before USD valuation.
+`emissionsAlpha` is the sum of the observed total alpha-out rates / 10^9.
+`minerShare` is the exact effective fraction `sum(minerCredits)/sum(alphaOutRao)`;
+the unchanged pool function therefore yields the reconstructed miner bucket.
+A changing split/rate inside a window is weighted block by block, never
+extrapolated from its closing scalar. Legacy owner-cut fields are retained as
+compatibility metadata, not used to infer the new miner share.
+
+Validators re-read all samples from finalized, genesis-checked chain storage,
+in addition to checking the signed payload and boundary hashes. The pinned SDK
+metadata and bounded `state_queryStorage` RPC reconstruct changed values. When
+the endpoint explicitly disables that range RPC (method-not-found or the standard
+unsafe-call policy), a bounded `state_queryStorageAt` point-batch path is used
+with shared metadata. Pruned oldest state fails before fan-out. Transport,
+authentication and rate-limit errors never trigger the point fallback. Mainnet
+defaults to the official Finney archive endpoint; explicit RPC overrides remain
+honored and must serve historical state. A window spanning a runtime codec change is deferred rather than decoded
+under guessed metadata. An immutable private verification cache is bound to the
+complete artifact and boundary hashes; doctor may read it but never creates it.
+RPC failure, cancellation, mismatched samples or cache conflicts fail closed,
+never become zero work or a trusted partial check. Work approvals and USD price
+attribution still come from the trusted signed accounting publisher.
+
+Historical reports are neither rewritten nor replayed. Upgrade the publisher,
+owner and independent validators before enabling `--chain-emission-policy` in
+the finalizer. v0.5.0 and older cannot read the new policy. Installing compatible
+readers alone does not activate new reports or change chain emission settings.
 
 Window fields: `version`, `policy`, `start`, `end`, `finalizedAt`, `scores`.
 Scores contain `minerId`, integer `earningsMicrousd`, integer `surchargeMicrousd`,
@@ -55,7 +91,8 @@ Accounting epoch numbers come from finalized chain head divided by `tempo+1`, mi
 Scheduling slots instead use finalized `SubnetEpochIndex` and `LastEpochBlock`.
 The v0.5.0 `chain-epoch-v3` scheduler uses an additional signed assignment at
 the sibling `allocations/{chainEpoch}.json` endpoint, never a local backlog.
-The accounting report format above remains compatible with older readers.
+Legacy/fixed-41 reports remain compatible with their older readers; the opt-in
+chain-emission policy specifically requires updated readers.
 
 Assignment payload fields are exactly `schema`, `policy`, `network`, `netuid`,
 `genesis`, `chainEpoch`, `chainEpochStart`, `chainEpochStartHash`,

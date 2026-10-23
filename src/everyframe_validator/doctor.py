@@ -14,7 +14,7 @@ from .state import (
 import asyncio
 
 
-async def doctor(path, offline=False):
+async def doctor(path, offline=False, check_emissions=False):
     checks = []
 
     def failure(name, exc, required=True):
@@ -137,8 +137,21 @@ async def doctor(path, offline=False):
                                    'accountingEpoch':selected['accountingEpoch'],'mode':selected['mode']})
                     if selected['mode']=='signed_epoch':
                         raw = await asyncio.to_thread(fetch,c['feed'],selected['accountingEpoch'])
-                        await assignment.verify_report(client,raw,c['publicKey'],domain,view,selected)
+                        await assignment.verify_report(client,raw,c['publicKey'],domain,view,selected,root)
                     checks.append({'name':'feed','ok':True,'epoch':selected['accountingEpoch']})
+                    if check_emissions:
+                        from .core.emission_policy import collect_evidence, summarize, CHAIN_SHARE_POLICY
+                        try:
+                            start = selected['accountingEpoch'] * period
+                            evidence = await collect_evidence(client, domain['netuid'], start, start + period)
+                            total, miner = summarize(evidence, period)
+                            from fractions import Fraction
+                            checks.append({'name':'emissionHistory','ok':True,'policy':CHAIN_SHARE_POLICY,
+                                           'accountingEpoch':selected['accountingEpoch'],
+                                           'effectiveMinerShare':str(Fraction(miner,total)),
+                                           'readOnlyProbe':True})
+                        except Exception as exc:
+                            failure('emissionHistory', exc)
                 except FeedUnavailable:
                     checks.append({'name':'canonicalAssignment','ok':False,'state':'waiting',
                                    'code':'canonical_assignment_or_report_not_published',

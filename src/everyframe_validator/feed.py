@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from .core.chain_scope import check_record
 from .core.reward_policy import canonical, validate_artifact
+from .core.emission_policy import CHAIN_SHARE_POLICY
 
 SCHEMA = "everyframe.validator.epoch.v1"
 MAX_BYTES = 2_000_000
@@ -77,6 +78,8 @@ def validate_payload(payload, domain, epoch):
         raise ValueError("invalid_artifact_schema")
     a = payload["artifact"]
     policy_keys = {"minerSharePolicy"} if domain["network"] == "finney" and "minerSharePolicy" in a else set()
+    if domain['network'] == 'finney' and a.get('minerSharePolicy') == CHAIN_SHARE_POLICY:
+        policy_keys.add('emissionEvidence')
     exact_keys(a, ARTIFACT_KEYS | (MAINNET_KEYS if domain["network"] == "finney" else set()) | policy_keys)
     check_record(a, domain)
     if type(epoch) is not int or a["epoch"] != epoch:

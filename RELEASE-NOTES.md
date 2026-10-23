@@ -1,3 +1,23 @@
+# EveryFrame Validator v0.5.1
+
+- Add opt-in `chain-miner-emission-v1` reports for Etao's actual subnet emission
+  vector rather than assuming 41%. Sum per-block miner credits, with parent-state
+  splits, rate changes and conservative U96F32/integer rounding accounted for.
+- Publish signed public evidence and independently check it against finalized
+  storage before computing/signing weights. Use metadata-sharing bounded reads
+  and immutable full-artifact/boundary-hash caches, not repeated full SDK queries.
+- Preserve existing legacy/fixed-41 signed reports, journals and commitments.
+  The publisher's `--chain-emission-policy` gate stays opt-in until owner and
+  independent validators are compatible. No chain settings or old reports change.
+- Fix reveal/application observation for `chain-epoch-v3` records as well as v2.
+- Default mainnet reads to the official Finney archive. Keep explicit RPC
+  overrides. `doctor --check-emissions` probes new-policy readiness before
+  activation, without signing, publishing or writing a verification cache.
+- Publishing this release does not activate the new accounting policy, upgrade
+  other validators, restart signing services, or approve historical compensation.
+  Upgrade all readers and pass `doctor --check-emissions` on their actual RPC
+  configurations before the owner explicitly enables the new writer policy.
+
 # EveryFrame Validator v0.5.0
 
 - Select one shared, signed accounting assignment per finalized chain epoch.
