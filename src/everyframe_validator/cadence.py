@@ -191,6 +191,8 @@ async def tick(root, config, submit, interval, missing, weight_cadence='block', 
                     or artifact['endBlockHash'] != await client._substrate.block_hash(artifact['endBlock'])
                     or artifact['closeBlockHash'] != await client._substrate.block_hash(artifact['endBlock'] - 1)):
                 raise ValueError('epoch chain provenance mismatch')
+            from .assignment import verify_emissions
+            await verify_emissions(client, artifact, root, persist=True)
             cache = root / 'accepted'
             cache.mkdir(mode=0o700, exist_ok=True)
             atomic_json(cache / (str(epoch) + '.json'), {'payloadHash': digest(payload)}, immutable=True)

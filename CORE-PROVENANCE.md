@@ -21,10 +21,15 @@ Packaging changes:
   settlement. Public recovery totals use the existing signed score fields;
   private evidence and financial approval stay with the publisher.
 - Relative imports and bundled immutable network profiles.
-- No owner CLI entrypoints or owner runner/SSH snapshot code.
-- Mainnet defaults to the SDK Finney endpoint; operators can explicitly select
+- No owner-runner or SSH snapshot execution in the independent validator loop.
+- Mainnet defaults to the official Finney archive endpoint; operators can explicitly select
   another RPC. Genesis verification remains required, and missing historical
   state fails closed rather than silently switching networks or resetting state.
+- v0.5.1 adds EveryFrame's own Etao miner-bucket reconstruction and public
+  evidence checks. The pure `core/emission_policy.py` is mirrored byte-for-byte
+  into the subnet verifier. It reads the chain's vector and rates, not a copied
+  SayGM implementation or a fixed replacement percentage. Signed historical
+  policies retain their original interpretation. The writer gate remains opt-in.
 - Local operator consent allows up to 365 days/1,000,000 submissions rather than
   the owner's 24-hour/3-submission pilot restriction. It applies on both networks.
   Consent is not issued or approved by the subnet owner.

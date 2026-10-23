@@ -22,7 +22,7 @@ from .state import atomic_json, journal_rows, read_private
 
 CADENCE = 'chain-epoch-v3'
 MAX_ACCOUNTING_PROBES = 32
-ACCOUNTING_SCAN_TIMEOUT_SECONDS = 30
+ACCOUNTING_SCAN_TIMEOUT_SECONDS = 120
 
 
 async def reconcile_only(root, config):

@@ -11,6 +11,11 @@ from .wallet import WalletConfigurationError
 
 
 ERRORS = {
+    'chain_emission_history_unavailable': ('emission_history_unavailable', 'The RPC could not supply finalized emission history. Use a genesis-checked archive RPC supporting state_queryStorage or historical state_queryStorageAt; no assumed percentage or weights were submitted.'),
+    'chain_emission_evidence_mismatch': ('emission_evidence_mismatch', 'The signed emission samples do not match finalized chain storage. Preserve state and investigate the publisher; no weights were submitted.'),
+    'chain_miner_pool_does_not_match_evidence': ('invalid_miner_pool', 'The reported miner pool does not match its per-block emission evidence. No weights were submitted.'),
+    'immutable_emission_evidence_conflict': ('conflicting_emission_evidence', 'Emission evidence conflicts with an already verified immutable artifact. Preserve state and investigate; do not clear the cache or journal.'),
+    'emission_window_spans_runtime_upgrade': ('emission_runtime_transition', 'The accounting window spans different runtime codecs. Defer the window rather than guessing emission metadata; no weights were submitted.'),
     'invalid_assignment_chain_schedule': ('invalid_assignment_schedule', 'The canonical assignment could not be bound to finalized epoch-start blocks. No weights were submitted.'),
     'assignment_does_not_match_finalized_chain_epoch': ('invalid_assignment_schedule', 'The signed assignment does not match this finalized chain epoch. Preserve state and check the publisher; no alternate report was selected.'),
     'assigned_accounting_provenance_mismatch': ('assigned_accounting_mismatch', 'The accounting hash or chain provenance does not match the signed assignment. No weights were submitted.'),

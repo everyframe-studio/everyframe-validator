@@ -228,6 +228,8 @@ async def main(args):
             if (artifact['endBlockHash'] != await client._substrate.block_hash(artifact['endBlock']) or
                     artifact['closeBlockHash'] != await client._substrate.block_hash(artifact['endBlock'] - 1)):
                 raise ValueError('epoch chain provenance mismatch')
+            from .emission_policy import verify_chain_evidence
+            await verify_chain_evidence(client, artifact)
             data = artifact['window']
             plan = epoch_weight_plan(artifact, bindings, neurons, args.validator_hotkey, params, owner, owner_hotkey)
         record = {**domain, 'block': graph.block, 'window': data,

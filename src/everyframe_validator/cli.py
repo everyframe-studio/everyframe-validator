@@ -55,6 +55,8 @@ def parser():
     commands["run"].add_argument("--missing-accounting", choices=("wait", "burn"), default="burn",
                                 help="Legacy compatibility option; canonical mode always waits on HTTP 404. Burns require authenticated zero-work or a signed reuse-burn assignment.")
     commands["doctor"].add_argument("--offline", action="store_true", help="Skip RPC and feed checks")
+    commands['doctor'].add_argument('--check-emissions', action='store_true',
+                                   help='Read-only archive/RPC readiness probe for chain-miner-emission-v1 before coordinated activation')
     commands["authorize"].add_argument("--days", type=int, default=30)
     commands["authorize"].add_argument("--max-submissions", type=int, default=1000)
     commands["authorize"].add_argument("--yes", action="store_true", help="Acknowledge future run --submit can sign transactions and incur fees")
@@ -111,7 +113,9 @@ def main():
         elif args.command == "status":
             result = status_snapshot(root)
         elif args.command == "doctor":
-            result = asyncio.run(asyncio.wait_for(doctor(root, offline=args.offline), timeout=60))
+            if args.offline and args.check_emissions:
+                p.error('--check-emissions requires network access; do not combine it with --offline')
+            result = asyncio.run(asyncio.wait_for(doctor(root, offline=args.offline, check_emissions=args.check_emissions), timeout=180))
         elif args.command == "reconcile":
             result = asyncio.run(asyncio.wait_for(tick(root, only_reconcile=True), timeout=300))
         else:

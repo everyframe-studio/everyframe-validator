@@ -7,20 +7,23 @@ provider API keys, GPU, Phala account, or miner TEE is required.
 
 ## Release status
 
-Version 0.5.0 uses a shared signed accounting assignment for each chain epoch,
-replacing the validator-specific backlog that could make owner and independent
-weights diverge. It requires `/validator/allocations/{chainEpoch}.json` and a
-coordinated owner/independent-validator cutover; publication does not switch
-running validators automatically. See [upgrade instructions](#upgrade-an-existing-validator-to-v050).
+Version 0.5.1 adds independently verified, chain-derived miner emission budgets,
+including subnet splits where miners receive 33% rather than 41%. It retains
+v0.5.0's shared signed accounting assignment for each chain epoch, replacing the
+validator-specific backlog that could make owner and independent weights diverge.
+It requires `/validator/allocations/{chainEpoch}.json`. Publication does not switch
+running validators or activate the new report policy automatically. See
+[upgrade instructions](#upgrade-an-existing-validator-to-v051) and the
+[coordinated emission-policy rollout](#v051-emission-policy-upgrade).
 
-Version 0.5.0 provides a Linux amd64 image at
+Version 0.5.1 provides a Linux amd64 image at
 `ghcr.io/everyframe-studio/everyframe-validator:latest` and versioned tags.
 It is **not published to PyPI**. Check [Releases](https://github.com/everyframe-studio/everyframe-validator/releases)
 for published versions; see [RELEASING.md](RELEASING.md).
 It includes v0.4.1's legacy wallet compatibility: `defaultpub.txt` is not required
 when the existing hotkey file contains public metadata. Setup and doctor now
 identify incorrect wallet roots before signing-mode epoch waits.
-It uses Finney RPC, at most one allocation per actual chain epoch,
+It uses Finney archive RPC, at most one allocation per actual chain epoch,
 60-second polling, a 100-block minimum submission gap, immutable assignments and
 durable submission/recovery journals. Older report queues are preserved for audit
 but no longer select inputs. Reviewed missed rewards belong in future shared
@@ -88,7 +91,7 @@ docker compose up -d
 ```
 
 Use either the standalone Docker commands or Compose, not both with the same hotkey.
-Pin `:v0.5.0` or an immutable `@sha256:...` for reproducibility. The separate
+Pin `:v0.5.1` or an immutable `@sha256:...` for reproducibility. The separate
 [managed canary workflow](deploy/README.md) still requires immutable release
 digests; `image.txt` remains available for that advanced workflow only.
 
@@ -119,6 +122,29 @@ you omitted them initially, stop the service and edit only the `wallet`,
 keep the validator identity, trust pins and journals unchanged.
 Do not mount unrelated wallets or the owner's server credentials. The supplied
 systemd unit under `deploy/` is an alternative template, also dry-run by default.
+
+## v0.5.1 emission-policy upgrade
+
+This release adds a compatibility update for subnet emission splits that
+are no longer 41% for miners. It reads signed `chain-miner-emission-v1` evidence,
+rechecks the actual chain samples, and preserves historical report policies.
+See [PROTOCOL.md](PROTOCOL.md) for the wire format and conservative rounding.
+
+The new report policy is **not activated by this release**. Do not enable
+`--chain-emission-policy` in the owner finalizer until the accounting
+publisher, owner validator and independent validators (including Yuma) all run
+compatible code. v0.5.0 rejects this format. The activation must be coordinated;
+do not reset journals, replay historical windows or alter chain settings.
+
+Before the cutover, run:
+
+```bash
+everyframe-validator doctor --state-dir YOUR_EXISTING_STATE --check-emissions
+```
+
+It probes full-window archive access and computes the new budget read-only, even
+while the published reports are still legacy. The
+`emissionHistory` check must pass on each operator's actual RPC configuration.
 
 ## Install from source (alternative)
 
@@ -217,7 +243,8 @@ everyframe-validator reconcile --state-dir ./state/mainnet117
 
 ### RPC endpoint
 
-Mainnet uses the SDK's **Finney** endpoint by default; testnet uses its test
+Mainnet uses the official **Finney archive** endpoint
+`wss://archive.chain.opentensor.ai:443` by default; testnet uses its test
 endpoint. All paths verify the expected genesis before trusting chain data.
 Choose an alternative when your RPC lacks historical state:
 
@@ -299,12 +326,14 @@ arguments are compatibility aliases for `chain`, not a way to restore unsafe
 refreshes. Existing commitments cannot be cancelled by stopping the process.
 Preserve journals, `reward-schedule.json`, `accounting-scan.json`, and authorizations.
 
-### Upgrade an existing validator to v0.5.0
+### Upgrade an existing validator to v0.5.1
 
 Coordinate the signing cutover with the subnet operator. First verify that doctor
 accepts the current `canonicalAssignment`; do not switch a signing process while
-the owner/peer rollout or assignment feed is not ready. v0.4.x cannot follow this
-assignment protocol and must be upgraded for synchronized inputs.
+the owner/peer rollout or assignment feed is not ready. v0.4.x cannot follow the
+shared assignment protocol; v0.5.0 cannot read the new chain-emission evidence.
+v0.5.1 still accepts existing legacy/fixed-41% reports, so readers can upgrade
+before the owner enables the new policy. Do not enable it until peers are ready.
 
 Stop the old instance before starting another with the same hotkey. Keep the same
 state volume, wallet mounts, RPC configuration and signing/dry-run command.
@@ -315,20 +344,22 @@ For the root Compose setup (keep any existing signing override):
 
 ```bash
 docker compose stop validator
-export VALIDATOR_IMAGE=ghcr.io/everyframe-studio/everyframe-validator:v0.5.0
+export VALIDATOR_IMAGE=ghcr.io/everyframe-studio/everyframe-validator:v0.5.1
 docker compose pull validator
 docker compose run --rm --no-deps validator --version
 docker compose run --rm --no-deps validator doctor --state-dir /state
+docker compose run --rm --no-deps validator doctor --state-dir /state --check-emissions
 docker compose up -d validator
 docker compose logs --tail 100 validator
 ```
 
-For source installations, install the v0.5.0 release into the service's virtual
+For source installations, install the v0.5.1 release into the service's virtual
 environment and restart that service with its existing state directory. Check
 `--version`, `status` and `doctor`. A finalized commit is not proof of payment;
-wait for reveal and application evidence. This release changes accounting input
-selection, preserves signed fixed-41% support, and does not change chain parameters
-or rewrite historical reports. Owner-only reviewed recovery tools are documented
+wait for reveal and application evidence. This release adds chain-derived emission
+verification and fixes reveal tracking for v3 records. It preserves signed
+fixed-41% support, and does not change chain parameters or rewrite historical
+reports. Owner-only reviewed recovery tools are documented
 in [OWNER-ACCOUNTING.md](OWNER-ACCOUNTING.md); independent validators do not run them.
 
 `status` can run while the validator is busy: it reads committed journal data and

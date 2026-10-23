@@ -10,6 +10,7 @@ from fractions import Fraction
 from pathlib import Path
 import sqlite3
 from ..core.chain_scope import scope, check_record, bind_database
+from ..core.emission_policy import CHAIN_SHARE_POLICY, validate_evidence
 
 POLICY = 'epoch-value-cap-burn-v2'
 MAX_WEIGHT = 65535
@@ -262,7 +263,7 @@ def validate_artifact(a):
     positive(a['alphaPriceUsd'])
     positive(a['emissionsAlpha'])
     if a['network'] == 'test':
-        if a.get('minerShare') != '0.41':
+        if a.get('minerShare') != '0.41' or 'minerSharePolicy' in a or 'emissionEvidence' in a:
             raise ValueError('unexpected miner emission share')
     else:
         cut = a.get('ownerCutU16')
@@ -270,11 +271,14 @@ def validate_artifact(a):
                 or a.get('unusedAllocation') not in ('Recycle', 'Burn')
                 or a.get('accountingWindow') != 'fixed-tempo-plus-one-v1'):
             raise ValueError('missing mainnet emission policy evidence')
-        # Preserve legacy signed accounting; new reports explicitly pin 41%.
+        # Never reinterpret historical signed legacy/fixed-share reports.
         share_policy = a.get('minerSharePolicy')
-        if 'minerSharePolicy' in a and share_policy != MINER_SHARE_POLICY:
+        if 'minerSharePolicy' in a and share_policy not in (MINER_SHARE_POLICY, CHAIN_SHARE_POLICY):
             raise ValueError('unsupported miner share policy')
-        expected = (MINER_SHARE if share_policy == MINER_SHARE_POLICY else
+        if share_policy != CHAIN_SHARE_POLICY and 'emissionEvidence' in a:
+            raise ValueError('unexpected_emission_evidence')
+        expected = (validate_evidence(a) if share_policy == CHAIN_SHARE_POLICY else
+                    MINER_SHARE if share_policy == MINER_SHARE_POLICY else
                     Fraction(65535-(cut if a['ownerCutEnabled'] else 0), 2*65535))
         if positive(a['minerShare']) != expected:
             raise ValueError('mainnet miner share does not match accounting policy')

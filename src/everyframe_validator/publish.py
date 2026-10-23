@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from .core.chain_scope import scope, check_database
 from .core.reward_policy import canonical, digest, load_epoch
+from .core.emission_policy import CHAIN_SHARE_POLICY
 from .feed import ARTIFACT_KEYS, MAINNET_KEYS, WINDOW_KEYS, SCORE_KEYS, PRICE_KEYS, SCHEMA, PROFILES, strict_json, validate_payload
 from .state import atomic_json
 
@@ -22,6 +23,8 @@ def project(artifact, bindings):
     keys = ARTIFACT_KEYS | (MAINNET_KEYS if artifact["network"] == "finney" else set())
     if artifact["network"] == "finney" and "minerSharePolicy" in artifact:
         keys |= {"minerSharePolicy"}
+    if artifact['network'] == 'finney' and artifact.get('minerSharePolicy') == CHAIN_SHARE_POLICY:
+        keys |= {'emissionEvidence'}
     public = {key: artifact[key] for key in keys}
     public["window"] = {key: artifact["window"][key] for key in WINDOW_KEYS}
     public["window"]["scores"] = [{key: row[key] for key in SCORE_KEYS} for row in artifact["window"]["scores"]]

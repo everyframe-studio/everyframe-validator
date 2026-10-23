@@ -92,7 +92,7 @@ async def tick(args, key):
         verify(raw,expected,domain,epoch)
         expose(strict_json(raw),args.public_epochs,epoch)
     result = await publish_assignment(SimpleNamespace(network=args.network,expected_public_key=expected,
-        signing_key=str(key),epochs_dir=str(root/'epochs'),output=str(root/'assignments')))
+        signing_key=str(key),epochs_dir=str(root/'epochs'),output=str(root/'assignments'),verification_root=root))
     if result['chainEpoch'] != s['SubnetEpochIndex'] or result['accountingEpoch'] != epoch:
         return {'state':'waiting','reason':'chain_epoch_advanced_during_publication',
                 'chainTransactions':0,'walletAccess':False}
@@ -125,7 +125,7 @@ def main():
         if not credentials or not runtime:
             raise ValueError('systemd_accounting_credential_and_private_runtime_required')
         with credential_key(Path(credentials)/'accounting-signing-key',runtime) as key:
-            result = asyncio.run(asyncio.wait_for(tick(args,key),timeout=120))
+            result = asyncio.run(asyncio.wait_for(tick(args,key),timeout=210))
     except BlockingIOError:
         print(json.dumps({'state':'busy','chainTransactions':0,'walletAccess':False}))
         return

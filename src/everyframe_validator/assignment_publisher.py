@@ -42,6 +42,7 @@ async def publish(args):
             if (a['endBlockHash'] != await client._substrate.block_hash(a['endBlock'])
                     or a['closeBlockHash'] != await client._substrate.block_hash(a['endBlock'] - 1)):
                 raise ValueError('assignment_accounting_chain_provenance_mismatch')
+            await assignment.verify_emissions(client, a, getattr(args, 'verification_root', None), persist=True)
         p = assignment.project(domain, view, s, payload)
         envelope = sign(p, key)
         assignment.authenticate(json.dumps(envelope), expected, domain, view, s)
@@ -64,7 +65,7 @@ def main():
         p.add_argument('--'+name, required=True)
     p.add_argument('--expected-public-key')
     a = p.parse_args()
-    print(json.dumps(asyncio.run(asyncio.wait_for(publish(a), timeout=60))))
+    print(json.dumps(asyncio.run(asyncio.wait_for(publish(a), timeout=180))))
 
 
 if __name__ == '__main__':
