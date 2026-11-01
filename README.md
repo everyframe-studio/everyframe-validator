@@ -7,16 +7,24 @@ provider API keys, GPU, Phala account, or miner TEE is required.
 
 ## Release status
 
+Version **0.6.0** adds deterministic owner burn selection tied to each signed
+accounting assignment. Every validator independently verifies the eligible owner
+UIDs at the same finalized snapshot, then derives the same target. Only unused
+allocation moves; serving-miner weights and existing commitments are preserved.
+See [BURN-ROTATION.md](BURN-ROTATION.md) for the protocol and coordinated rollout.
+Existing v1 assignments continue to work. Installing this version does not
+activate v2; upgrade all participating validators before the publisher enables it.
+
 Version 0.5.1 adds independently verified, chain-derived miner emission budgets,
 including subnet splits where miners receive 33% rather than 41%. It retains
 v0.5.0's shared signed accounting assignment for each chain epoch, replacing the
 validator-specific backlog that could make owner and independent weights diverge.
 It requires `/validator/allocations/{chainEpoch}.json`. Publication does not switch
 running validators or activate the new report policy automatically. See
-[upgrade instructions](#upgrade-an-existing-validator-to-v051) and the
+[upgrade instructions](#upgrade-an-existing-validator-to-v060) and the
 [coordinated emission-policy rollout](#v051-emission-policy-upgrade).
 
-Version 0.5.1 provides a Linux amd64 image at
+Version 0.6.0 provides a Linux amd64 image at
 `ghcr.io/everyframe-studio/everyframe-validator:latest` and versioned tags.
 It is **not published to PyPI**. Check [Releases](https://github.com/everyframe-studio/everyframe-validator/releases)
 for published versions; see [RELEASING.md](RELEASING.md).
@@ -91,7 +99,7 @@ docker compose up -d
 ```
 
 Use either the standalone Docker commands or Compose, not both with the same hotkey.
-Pin `:v0.5.1` or an immutable `@sha256:...` for reproducibility. The separate
+Pin `:v0.6.0` or an immutable `@sha256:...` for reproducibility. The separate
 [managed canary workflow](deploy/README.md) still requires immutable release
 digests; `image.txt` remains available for that advanced workflow only.
 
@@ -125,12 +133,12 @@ systemd unit under `deploy/` is an alternative template, also dry-run by default
 
 ## v0.5.1 emission-policy upgrade
 
-This release adds a compatibility update for subnet emission splits that
+Since v0.5.1, the validator supports subnet emission splits that
 are no longer 41% for miners. It reads signed `chain-miner-emission-v1` evidence,
 rechecks the actual chain samples, and preserves historical report policies.
 See [PROTOCOL.md](PROTOCOL.md) for the wire format and conservative rounding.
 
-The new report policy is **not activated by this release**. Do not enable
+Installing a release does not change the report policy. Do not enable
 `--chain-emission-policy` in the owner finalizer until the accounting
 publisher, owner validator and independent validators (including Yuma) all run
 compatible code. v0.5.0 rejects this format. The activation must be coordinated;
@@ -326,14 +334,16 @@ arguments are compatibility aliases for `chain`, not a way to restore unsafe
 refreshes. Existing commitments cannot be cancelled by stopping the process.
 Preserve journals, `reward-schedule.json`, `accounting-scan.json`, and authorizations.
 
-### Upgrade an existing validator to v0.5.1
+### Upgrade an existing validator to v0.6.0
 
 Coordinate the signing cutover with the subnet operator. First verify that doctor
 accepts the current `canonicalAssignment`; do not switch a signing process while
-the owner/peer rollout or assignment feed is not ready. v0.4.x cannot follow the
-shared assignment protocol; v0.5.0 cannot read the new chain-emission evidence.
-v0.5.1 still accepts existing legacy/fixed-41% reports, so readers can upgrade
-before the owner enables the new policy. Do not enable it until peers are ready.
+the owner/peer rollout or assignment feed is not ready. v0.6.0 accepts existing
+v1 assignments and legacy/fixed-41% or chain-derived emission reports, so readers
+can upgrade before burn rotation is enabled. v0.5.1 and older cannot read v2 burn
+assignments. Upgrade every participating validator before the publisher selects
+a future activation epoch. Running `doctor` after activation also verifies the
+burn selection and reports its UID, candidate count and snapshot block.
 
 Stop the old instance before starting another with the same hotkey. Keep the same
 state volume, wallet mounts, RPC configuration and signing/dry-run command.
@@ -344,7 +354,7 @@ For the root Compose setup (keep any existing signing override):
 
 ```bash
 docker compose stop validator
-export VALIDATOR_IMAGE=ghcr.io/everyframe-studio/everyframe-validator:v0.5.1
+export VALIDATOR_IMAGE=ghcr.io/everyframe-studio/everyframe-validator:v0.6.0
 docker compose pull validator
 docker compose run --rm --no-deps validator --version
 docker compose run --rm --no-deps validator doctor --state-dir /state
@@ -353,13 +363,12 @@ docker compose up -d validator
 docker compose logs --tail 100 validator
 ```
 
-For source installations, install the v0.5.1 release into the service's virtual
+For source installations, install the v0.6.0 release into the service's virtual
 environment and restart that service with its existing state directory. Check
 `--version`, `status` and `doctor`. A finalized commit is not proof of payment;
-wait for reveal and application evidence. This release adds chain-derived emission
-verification and fixes reveal tracking for v3 records. It preserves signed
-fixed-41% support, and does not change chain parameters or rewrite historical
-reports. Owner-only reviewed recovery tools are documented
+wait for reveal and application evidence. This release preserves all existing
+accounting policies, chain parameters and historical reports. It does not
+activate burn rotation or restart a signing process. Owner-only recovery tools are documented
 in [OWNER-ACCOUNTING.md](OWNER-ACCOUNTING.md); independent validators do not run them.
 
 `status` can run while the validator is busy: it reads committed journal data and

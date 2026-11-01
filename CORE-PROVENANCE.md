@@ -11,6 +11,11 @@ durable submission reservation, no uncertain-broadcast retry, and reveal checks.
 
 Packaging changes:
 
+- v0.6.0 adds EveryFrame's deterministic owner burn selection. The signed
+  assignment binds the report and finalized owner-coldkey candidate snapshot;
+  validators reconstruct the selection locally. Only the unused allocation
+  changes recipient. Existing cap/burn amounts, historical policies, and
+  submission/reveal guards retain their original behavior.
 - Canonical chain-epoch assignments replace local report queues for
   scoring selection. Each validator still computes exact weights locally; the
   signed assignment binds only accounting inputs and finalized chain timing.

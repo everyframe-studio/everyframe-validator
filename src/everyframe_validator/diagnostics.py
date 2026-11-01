@@ -11,6 +11,22 @@ from .wallet import WalletConfigurationError
 
 
 ERRORS = {
+    'invalid_burn_owner_snapshot': ('invalid_burn_snapshot', 'The RPC returned invalid owner or metagraph evidence for the pinned block. No alternate target was chosen.'),
+    'invalid_burn_selection_seed': ('invalid_burn_selection', 'The deterministic burn seed or candidate count is invalid. No weights were submitted.'),
+    'invalid_burn_rotation_activation_epoch': ('invalid_burn_activation', 'Use a nonnegative chain epoch for the coordinated burn-policy activation.'),
+    'assignment_publisher_busy': ('assignment_publisher_busy', 'Another assignment publisher is active for this output. Retry after it exits; do not delete its lock or change state.'),
+    'invalid_assignment_publisher_lock': ('invalid_publisher_lock', 'The assignment publication lock must be an operator-owned regular file with mode 0600.'),
+    'invalid_burn_selection': ('invalid_burn_selection', 'The signed burn selection is malformed. Preserve state and check the assignment publisher; no alternate target was chosen.'),
+    'burn_selection_wrong_snapshot': ('invalid_burn_snapshot', 'The burn selection does not match its finalized epoch-start block. No alternate target was chosen.'),
+    'burn_selection_wrong_seed': ('invalid_burn_selection', 'The deterministic burn seed does not match the assignment. No weights were submitted.'),
+    'burn_selection_does_not_match_chain': ('invalid_burn_selection', 'The burn target differs from the independently reconstructed owner-UID selection. No weights were submitted.'),
+    'burn_owner_mapping_inconsistent': ('invalid_burn_ownership', 'The finalized owner hotkey list and metagraph disagree. Wait for verified chain evidence.'),
+    'no_registered_owner_burn_candidates': ('no_owner_burn_candidates', 'No eligible registered owner hotkey exists at the pinned block. No substitute or fabricated work was used.'),
+    'burn_selection_ownership_changed': ('burn_ownership_changed', 'The selected UID, hotkey or owner changed. Wait for a new verified assignment; this epoch is not rerolled.'),
+    'immutable_burn_selection_conflict': ('conflicting_burn_selection', 'This epoch conflicts with a previously verified burn selection. Preserve the journal and investigate.'),
+    'invalid_burn_policy_pin': ('invalid_burn_policy_pin', 'The durable burn-policy marker is invalid. Preserve state and investigate rather than clearing it.'),
+    'burn_policy_downgrade': ('burn_policy_downgrade', 'A legacy assignment appeared after deterministic burn selection was activated. Wait for the correct publisher; preserve state.'),
+    'burn_activation_conflict': ('burn_activation_conflict', 'The requested activation epoch conflicts with the durable publisher setting. Do not rewrite prior assignments.'),
     'chain_emission_history_unavailable': ('emission_history_unavailable', 'The RPC could not supply finalized emission history. Use a genesis-checked archive RPC supporting state_queryStorage or historical state_queryStorageAt; no assumed percentage or weights were submitted.'),
     'chain_emission_evidence_mismatch': ('emission_evidence_mismatch', 'The signed emission samples do not match finalized chain storage. Preserve state and investigate the publisher; no weights were submitted.'),
     'chain_miner_pool_does_not_match_evidence': ('invalid_miner_pool', 'The reported miner pool does not match its per-block emission evidence. No weights were submitted.'),

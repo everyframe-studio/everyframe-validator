@@ -92,7 +92,8 @@ async def tick(args, key):
         verify(raw,expected,domain,epoch)
         expose(strict_json(raw),args.public_epochs,epoch)
     result = await publish_assignment(SimpleNamespace(network=args.network,expected_public_key=expected,
-        signing_key=str(key),epochs_dir=str(root/'epochs'),output=str(root/'assignments'),verification_root=root))
+        signing_key=str(key),epochs_dir=str(root/'epochs'),output=str(root/'assignments'),verification_root=root,
+        burn_rotation_from_chain_epoch=getattr(args,'burn_rotation_from_chain_epoch',None)))
     if result['chainEpoch'] != s['SubnetEpochIndex'] or result['accountingEpoch'] != epoch:
         return {'state':'waiting','reason':'chain_epoch_advanced_during_publication',
                 'chainTransactions':0,'walletAccess':False}
@@ -112,6 +113,8 @@ def main():
     for name in ('epochs','bindings','state-dir','public-epochs','public-assignments'):
         p.add_argument('--'+name,required=True)
     p.add_argument('--expected-public-key')
+    p.add_argument('--burn-rotation-from-chain-epoch', type=int,
+                   help='Future chain epoch for deterministic owner-burn selection; leave unset until all readers upgrade')
     args = p.parse_args()
     os.umask(0o077)
     root = private_directory(args.state_dir)

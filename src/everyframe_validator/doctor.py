@@ -133,8 +133,18 @@ async def doctor(path, offline=False, check_emissions=False):
                     s = await schedule(client,domain,head)
                     raw = await asyncio.to_thread(fetch,assignment.feed_url(c['feed']),s['SubnetEpochIndex'])
                     selected = assignment.authenticate(raw,c['publicKey'],domain,view,s)
+                    await assignment.verify_burn(client,selected,root)
                     checks.append({'name':'canonicalAssignment','ok':True,'chainEpoch':s['SubnetEpochIndex'],
                                    'accountingEpoch':selected['accountingEpoch'],'mode':selected['mode']})
+                    if 'burnSelection' in selected:
+                        selection = selected['burnSelection']
+                        from .core.burn_selection import resolve
+                        current_owner = await client.query(('SubtensorModule','SubnetOwner'), [domain['netuid']], block=head)
+                        resolve([{'uid':n.uid,'hotkey':n.hotkey,'coldkey':n.coldkey} for n in graph.neurons],
+                                current_owner,None,selection)
+                        checks.append({'name':'burnSelection','ok':True,'policy':selection['policy'],
+                                       'uid':selection['uid'],'candidateCount':selection['candidateCount'],
+                                       'snapshotBlock':selection['snapshotBlock']})
                     if selected['mode']=='signed_epoch':
                         raw = await asyncio.to_thread(fetch,c['feed'],selected['accountingEpoch'])
                         await assignment.verify_report(client,raw,c['publicKey'],domain,view,selected,root)

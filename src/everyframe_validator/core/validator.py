@@ -10,6 +10,7 @@ import time
 import sys
 
 from .reward_policy import POLICY, cap_burn, digest, load_epoch, pool_microusd
+from .burn_selection import resolve as resolve_burn
 from .chain_scope import scope, add_network, bind_database, check_database, check_record, check_authorization, read_network, rpc_options
 from .submission import prepare
 
@@ -102,7 +103,7 @@ def weight_plan(scores, bindings, neurons, validator_hotkey, params):
             'quantized': dict(zip(uids, quantized)), 'validatorUid': validator['uid']}
 
 
-def epoch_weight_plan(artifact, bindings, neurons, validator_hotkey, params, owner, owner_hotkey):
+def epoch_weight_plan(artifact, bindings, neurons, validator_hotkey, params, owner, owner_hotkey, *, burn_selection=None):
     """Value-proportional cap/burn, with an owner-verified burn identity exception."""
     pool = pool_microusd(artifact)
     by_hotkey = {n['hotkey']: n for n in neurons}
@@ -113,9 +114,7 @@ def epoch_weight_plan(artifact, bindings, neurons, validator_hotkey, params, own
     validator = by_hotkey.get(validator_hotkey)
     if not validator or validator.get('validator_permit') is not True:
         raise ValueError('validator has no permit')
-    burn = by_hotkey.get(owner_hotkey)
-    if not owner or not burn or burn.get('coldkey') != owner:
-        raise ValueError('burn target is not the registered subnet owner hotkey')
+    burn = resolve_burn(neurons, owner, owner_hotkey, burn_selection)
     if len(set(bindings.values())) != len(bindings):
         raise ValueError('duplicate operator hotkey binding')
     scores = artifact['window']['scores']
@@ -132,7 +131,7 @@ def epoch_weight_plan(artifact, bindings, neurons, validator_hotkey, params, own
             identities[uid] = hotkey
     weights = cap_burn(values, pool, burn['uid'])
     if burn['uid'] in weights:
-        identities[burn['uid']] = owner_hotkey
+        identities[burn['uid']] = burn['hotkey']
     from bittensor.intents import normalize
     uids, quantized = normalize(list(weights), list(weights.values()))
     minimum, maximum = params['min_allowed_weights'], params['max_weights_limit']
@@ -140,11 +139,14 @@ def epoch_weight_plan(artifact, bindings, neurons, validator_hotkey, params, own
             or len(uids) < minimum or len(uids) != len(weights)
             or max(quantized) * 65535 > maximum * sum(quantized)):
         raise ValueError('cap/burn weights violate chain constraints; never invent work or change chain settings')
-    return {'state': 'ready', 'policy': POLICY, 'weights': weights, 'quantized': dict(zip(uids, quantized)),
+    plan = {'state': 'ready', 'policy': POLICY, 'weights': weights, 'quantized': dict(zip(uids, quantized)),
             'identities': identities, 'validatorUid': validator['uid'], 'burnUid': burn['uid'],
-            'burnHotkey': owner_hotkey, 'ownerColdkey': owner, 'allBurn': not values,
+            'burnHotkey': burn['hotkey'], 'ownerColdkey': owner, 'allBurn': not values,
             'totalWorkMicrousd': sum(values.values()), 'poolMicrousd': str(pool),
             'burnBudgetUnits': weights.get(burn['uid'], 0), 'allocationBudgetUnits': 65535}
+    if burn_selection is not None:
+        plan['burnSelection'] = dict(burn_selection)
+    return plan
 
 
 def reserve_run(journal, run_id, record, authorization=None):

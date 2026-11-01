@@ -95,7 +95,14 @@ async def reconcile_database(args, domain, db):
                     client.query(('SubtensorModule', 'SubnetOwnerHotkey'), [netuid], block=block),
                     client.subnets.metagraph(netuid, block=block, commitments=False))
                 burn = next((n for n in graph.neurons if n.uid == record['plan']['burnUid']), None)
-                if burn and burn.hotkey == owner_hotkey:
+                selection = record['plan'].get('burnSelection')
+                if selection is not None:
+                    from .burn_selection import resolve
+                    checked = resolve([{'uid': n.uid, 'hotkey': n.hotkey, 'coldkey': n.coldkey}
+                                       for n in graph.neurons], owner, owner_hotkey, selection)
+                    burn_ownership = {'owner': owner, 'hotkey': checked['hotkey'],
+                                      'coldkey': checked['coldkey'], 'uid': checked['uid']}
+                elif burn and burn.hotkey == owner_hotkey:
                     burn_ownership = {'owner': owner, 'hotkey': owner_hotkey, 'coldkey': burn.coldkey, 'uid': burn.uid}
             # All evidence, including pending commits, must use the same
             # FINALIZED block rather than mixing finalized weights with head state.

@@ -1,3 +1,24 @@
+# EveryFrame Validator v0.6.0
+
+- Add deterministic owner burn selection. All validators derive the same burn
+  UID from the signed accounting assignment and the registered owner hotkeys at
+  its finalized epoch-start snapshot. Only unused allocation moves; serving-miner
+  weights stay unchanged.
+- Independently verify the candidate set, seed and selected UID. Recheck its
+  ownership before signing and at reveal/application; never silently substitute
+  another target if ownership changes.
+- Preserve v1 assignments, existing reports, journals, authorizations and pending
+  commitments. Upgrading does not activate burn rotation or change chain settings.
+- Make publisher activation durable across interrupted writes and serialize
+  concurrent publishers. Readers reject a silent policy downgrade after v2
+  activation. Doctor reports the selected UID and verification snapshot.
+- Upgrade all validators before the operator enables v2 at a future chain epoch.
+  Stop the existing instance, install v0.6.0, run `doctor` with the same state and
+  wallet configuration, and restart the original service. Do not reinitialize
+  state. See [the rollout guide](https://github.com/everyframe-studio/everyframe-validator/blob/v0.6.0/BURN-ROTATION.md).
+- Rotation can make stale copied vectors less useful. It does not hide the public
+  report or guarantee a particular VTrust score.
+
 # EveryFrame Validator v0.5.1
 
 - Add opt-in `chain-miner-emission-v1` reports for Etao's actual subnet emission

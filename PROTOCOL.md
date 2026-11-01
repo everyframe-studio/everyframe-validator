@@ -116,6 +116,20 @@ The complete payload hash (including bindings) is stored immutably;
 even another valid signature cannot revise an already accepted epoch locally.
 No discovery listing, mutable latest pointer, S3 login, or owner SSH is needed.
 
+## Optional assignment v2
+
+Version 0.6.0 readers also accept `everyframe.validator.assignment.v2` with policy
+`epoch-start-accounting-burn-v2`. It retains every v1 field and adds exactly one
+`burnSelection` object. Its finalized snapshot, full owner-coldkey candidate set,
+seed and target are independently verified. Only unused allocation changes UID;
+the signed accounting report format is unchanged. v1 records remain valid under
+their original policy. See [the algorithm and activation protocol](BURN-ROTATION.md).
+
+Readers persist the first verified v2 chain epoch and reject later legacy
+assignments at or above that floor. Previously submitted journal entries retain
+their selected identity for reveal and application checks. This selection is
+publicly reproducible and is not a secrecy guarantee against weight copying.
+
 ## Missed-reward carry-forward
 
 New public score totals can include a reviewed correction to prior earnings.
