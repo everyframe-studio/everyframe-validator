@@ -313,6 +313,7 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
             return {**common, 'state': 'waiting', 'reason': 'assignment_fetch_timeout'}
         source = selected['mode']
         common['assignmentHash'] = digest(selected)
+        common['assignmentPolicy'] = selected['policy']
         if source == 'signed_epoch' and any(
                 r['state'] != 'not_submitted' and r['record'].get('accountingSource', 'signed_epoch') == 'signed_epoch'
                 and r['record']['epoch'] == epoch for r in rows):
@@ -320,7 +321,9 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
                     'note': 'Preserve the historical allocation; do not replay it or select a different report.'}
         def make_plan(v):
             args = (v['neurons'], config['validatorHotkey'], v['params'], v['owner'], v['ownerHotkey'])
-            return epoch_weight_plan(payload['artifact'], payload['bindings'], *args) if payload else cadence.burn_plan(*args)
+            selection = selected.get('burnSelection')
+            return (epoch_weight_plan(payload['artifact'], payload['bindings'], *args, burn_selection=selection)
+                    if payload else cadence.burn_plan(*args, burn_selection=selection))
         plan = make_plan(view)
         fresh = await cadence.snapshot(client, domain, config)
         fresh_s = await schedule(client, domain, fresh['block'])
@@ -328,7 +331,7 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
                 or fresh_s['RevealPeriodEpochs'] != s['RevealPeriodEpochs']
                 or fresh['params'] != view['params'] or (submit and gate(fresh, fresh_s, rows))
                 or make_plan(fresh) != plan or (submit and fresh['block'] < cadence.due_at(rows, fresh, interval))
-                or assignment.project(domain,fresh,fresh_s,payload) != selected):
+                or assignment.project(domain,fresh,fresh_s,payload, burn_selection=selected.get('burnSelection')) != selected):
             return {**common, 'state': 'deferred', 'reason': 'chain_changed_before_signing'}
         record = {**domain, 'block': fresh['block'], 'validatorHotkey': config['validatorHotkey'],
                   'plan': plan, 'versionKey': config['versionKey'], 'epoch': epoch, 'openEpoch': view['epoch'] + 1,
@@ -337,9 +340,13 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
                   'intervalBlocks': max(interval, fresh['params']['weights_rate_limit']),
                   'commitReveal': fresh['params']['commit_reveal_weights_enabled'],
                   'accountingSource': source, 'payloadHash': digest(payload) if payload else None,
-                  'assignmentHash': digest(selected), 'assignmentPolicy': assignment.POLICY}
+                  'assignmentHash': digest(selected), 'assignmentPolicy': selected['policy']}
         result = {**common, 'state': 'dry_run', 'epoch': epoch, 'weights': plan['quantized'],
                   'allBurn': plan['allBurn'], 'accountingSource': source}
+        if 'burnSelection' in selected:
+            result.update(burnUid=plan['burnUid'], burnHotkey=plan['burnHotkey'],
+                          burnPolicy=selected['burnSelection']['policy'],
+                          burnCandidateCount=selected['burnSelection']['candidateCount'])
         if not submit:
             return result
         from .wallet import checked_wallet, check_signer
@@ -364,7 +371,7 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
                         or final_s['LastEpochBlock'] != s['LastEpochBlock']
                         or final_s['RevealPeriodEpochs'] != s['RevealPeriodEpochs']
                         or final['params'] != fresh['params'] or gate(final, final_s, rows)
-                        or assignment.project(domain,final,final_s,payload) != selected
+                        or assignment.project(domain,final,final_s,payload, burn_selection=selected.get('burnSelection')) != selected
                         or make_plan(final) != plan or final['lastUpdate'] != fresh['lastUpdate']
                         or final['pending'] != fresh['pending'] or final['block'] - record['block'] > 15):
                     raise ValueError('chain_changed_before_broadcast')

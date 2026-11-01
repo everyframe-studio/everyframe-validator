@@ -14,9 +14,12 @@ from .core.reward_policy import canonical, digest, seal_epoch
 from .core.emission_policy import CHAIN_SHARE_POLICY, verify_chain_evidence
 from .feed import fetch, strict_json, public_key, exact_keys, verify, validate_url
 from .state import atomic_json, read_private
+from .core import burn_selection as burn
 
 SCHEMA = 'everyframe.validator.assignment.v1'
 POLICY = 'epoch-start-accounting-v1'
+ROTATING_SCHEMA = 'everyframe.validator.assignment.v2'
+ROTATING_POLICY = 'epoch-start-accounting-burn-v2'
 KEYS = {'schema', 'policy', 'network', 'netuid', 'genesis', 'chainEpoch', 'chainEpochStart',
         'chainEpochStartHash', 'previousChainEpochStart', 'cutoffBlock', 'accountingEpoch',
         'blocksPerEpoch', 'mode', 'payloadHash'}
@@ -42,7 +45,7 @@ def target(view, s):
     return epoch, ('scheduled_reuse_burn' if previous // period - 1 == epoch else 'signed_epoch')
 
 
-def project(domain, view, s, payload=None):
+def project(domain, view, s, payload=None, *, burn_selection=None):
     epoch, mode = target(view, s)
     if mode == 'signed_epoch':
         if payload is None or payload['artifact']['epoch'] != epoch:
@@ -53,23 +56,29 @@ def project(domain, view, s, payload=None):
             raise ValueError('assignment_accounting_not_finalized')
     elif payload is not None:
         raise ValueError('reuse_burn_cannot_reallocate_report')
-    return {'schema': SCHEMA, 'policy': POLICY, **domain, 'chainEpoch': s['SubnetEpochIndex'],
+    p = {'schema': SCHEMA, 'policy': POLICY, **domain, 'chainEpoch': s['SubnetEpochIndex'],
             'chainEpochStart': s['LastEpochBlock'], 'chainEpochStartHash': s['chainEpochStartHash'],
             'previousChainEpochStart': s['previousChainEpochStart'], 'cutoffBlock': s['LastEpochBlock'],
             'accountingEpoch': epoch, 'blocksPerEpoch': view['params']['tempo'] + 1,
             'mode': mode, 'payloadHash': digest(payload) if payload is not None else None}
+    if burn_selection is not None:
+        burn.validate(burn_selection, p)
+        p.update(schema=ROTATING_SCHEMA, policy=ROTATING_POLICY, burnSelection=burn_selection)
+    return p
 
 
 def authenticate(raw, key, domain, view, s):
     envelope = strict_json(raw)
     exact_keys(envelope, {'payload', 'signature'})
     p = envelope['payload']
-    exact_keys(p, KEYS)
+    rotating = isinstance(p, dict) and p.get('schema') == ROTATING_SCHEMA
+    exact_keys(p, KEYS | ({'burnSelection'} if rotating else set()))
     public_key(key).verify(base64.b64decode(envelope['signature'], validate=True),
                            canonical(p).encode())
     check_record(p, domain)
     epoch, mode = target(view, s)
-    expected = {'schema': SCHEMA, 'policy': POLICY, **domain, 'chainEpoch': s['SubnetEpochIndex'],
+    expected = {'schema': ROTATING_SCHEMA if rotating else SCHEMA,
+                'policy': ROTATING_POLICY if rotating else POLICY, **domain, 'chainEpoch': s['SubnetEpochIndex'],
                 'chainEpochStart': s['LastEpochBlock'], 'chainEpochStartHash': s['chainEpochStartHash'],
                 'previousChainEpochStart': s['previousChainEpochStart'], 'cutoffBlock': s['LastEpochBlock'],
                 'accountingEpoch': epoch, 'blocksPerEpoch': view['params']['tempo'] + 1, 'mode': mode}
@@ -78,7 +87,49 @@ def authenticate(raw, key, domain, view, s):
             or (mode == 'signed_epoch' and (not isinstance(p['payloadHash'], str)
                 or len(p['payloadHash']) != 64 or any(c not in '0123456789abcdef' for c in p['payloadHash'])))):
         raise ValueError('assignment_does_not_match_finalized_chain_epoch')
+    if rotating:
+        burn.validate(p['burnSelection'], p)
     return p
+
+
+async def verify_burn(client, assigned, root=None, *, persist=False):
+    policy_path = root / 'burn-policy.json' if root else None
+    pinned = None
+    if policy_path is not None:
+        try:
+            pinned = read_private(policy_path)
+        except FileNotFoundError:
+            pass
+        else:
+            if (not isinstance(pinned, dict) or set(pinned) != {'policy', 'firstChainEpoch'}
+                or pinned['policy'] != ROTATING_POLICY or type(pinned['firstChainEpoch']) is not int
+                or pinned['firstChainEpoch'] < 0):
+                raise ValueError('invalid_burn_policy_pin')
+    if 'burnSelection' not in assigned:
+        if pinned and assigned['chainEpoch'] >= pinned['firstChainEpoch']:
+            raise ValueError('burn_policy_downgrade')
+        return
+    burn.validate(assigned['burnSelection'], assigned)
+    marker = {'assignmentHash': digest(assigned), 'burnSelection': assigned['burnSelection']}
+    path = root / 'verified-burns' / (str(assigned['chainEpoch']) + '.json') if root else None
+    if path is not None:
+        try:
+            accepted = read_private(path)
+        except FileNotFoundError:
+            pass
+        else:
+            if accepted != marker:
+                raise ValueError('immutable_burn_selection_conflict')
+            if persist and pinned is None:
+                atomic_json(policy_path, {'policy': ROTATING_POLICY, 'firstChainEpoch': assigned['chainEpoch']}, immutable=True)
+            return
+    if await burn.from_chain(client, assigned) != assigned['burnSelection']:
+        raise ValueError('burn_selection_does_not_match_chain')
+    if path is not None and persist:
+        if pinned is None:
+            atomic_json(policy_path, {'policy': ROTATING_POLICY, 'firstChainEpoch': assigned['chainEpoch']}, immutable=True)
+        path.parent.mkdir(mode=0o700, exist_ok=True)
+        atomic_json(path, marker, immutable=True)
 
 
 async def verify_emissions(client, artifact, root=None, *, persist=False):
@@ -118,6 +169,7 @@ async def verify_report(client, raw, key, domain, view, assignment, root=None, *
 async def load(client, root, config, domain, view, s):
     raw = await asyncio.to_thread(fetch, feed_url(config['feed']), s['SubnetEpochIndex'])
     assignment = authenticate(raw, config['publicKey'], domain, view, s)
+    await verify_burn(client, assignment, root, persist=True)
     accepted = root / 'assignments'
     accepted.mkdir(mode=0o700, exist_ok=True)
     atomic_json(accepted / (str(s['SubnetEpochIndex']) + '.json'),

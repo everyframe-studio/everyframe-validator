@@ -46,6 +46,19 @@ async def inspect(client, row, head, pending):
         for target, key in record['plan']['identities'].items():
             if await query('Keys', [netuid, int(target)], block) != key:
                 return False
+        selection = record['plan'].get('burnSelection')
+        if selection is not None:
+            from .core.burn_selection import validate
+            validate(selection)
+            if (selection['uid'] != record['plan']['burnUid']
+                    or selection['hotkey'] != record['plan']['burnHotkey']
+                    or selection['ownerColdkey'] != record['plan']['ownerColdkey']):
+                return False
+            owner, actual_owner = await asyncio.gather(
+                query('SubnetOwner', [netuid], block),
+                query('Owner', [selection['hotkey']], block))
+            if owner != selection['ownerColdkey'] or actual_owner != owner:
+                return False
         return True
     if not report.get('revealConfirmed'):
         if record['commitReveal']:

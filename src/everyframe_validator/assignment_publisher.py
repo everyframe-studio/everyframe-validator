@@ -1,24 +1,66 @@
 """Publish an immutable chain-epoch assignment. No chain wallet or transactions."""
 import argparse
 import asyncio
+import fcntl
 import json
+import os
 from pathlib import Path
+import stat
 
 from . import assignment
 from .core.chain_scope import scope, read_network, rpc_options
 from .core.reward_policy import digest
-from .feed import PROFILES, verify
+from .feed import PROFILES, strict_json, verify
 from .publish import load_signing_key, sign
 from .scheduled import schedule
-from .state import atomic_json
+from .state import atomic_json, read_private
+from .core import burn_selection
 
 
 async def publish(args):
+    output = Path(args.output).absolute()
+    if output.is_symlink():
+        raise ValueError('assignment_output_symlink')
+    output.mkdir(parents=True, exist_ok=True)
+    # Serialize both policy adoption and publication, including standalone CLI
+    # invocations. The OS releases this lock on crash; never delete it to retry.
+    fd = os.open(output / '.publisher.lock',
+                 os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise ValueError('invalid_assignment_publisher_lock')
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError('assignment_publisher_busy') from None
+        return await _publish(args, output)
+    finally:
+        os.close(fd)
+
+
+async def _publish(args, output):
     import bittensor as bt
     profile = PROFILES[args.network]
     domain = scope(profile['network'], profile['netuid'])
     expected = args.expected_public_key or profile['publicKey']
     key = load_signing_key(args.signing_key, expected)
+    requested = getattr(args, 'burn_rotation_from_chain_epoch', None)
+    if requested is not None and (type(requested) is not int or requested < 0):
+        raise ValueError('invalid_burn_rotation_activation_epoch')
+    activation_path = output / 'burn-activation.json'
+    try:
+        pinned = read_private(activation_path)
+    except FileNotFoundError:
+        pinned = None
+    else:
+        if (not isinstance(pinned, dict) or set(pinned) != {'policy', 'fromChainEpoch'}
+                or pinned['policy'] != assignment.ROTATING_POLICY
+                or type(pinned['fromChainEpoch']) is not int or pinned['fromChainEpoch'] < 0):
+            raise ValueError('invalid_burn_policy_pin')
+        if requested is not None and requested != pinned['fromChainEpoch']:
+            raise ValueError('burn_activation_conflict')
+        requested = pinned['fromChainEpoch']
     async with bt.Client(network=read_network(domain), **rpc_options(domain), fallback_endpoints=[],
                          archive_endpoints=[], retry_forever=False) as client:
         if await client._substrate.block_hash(0) != domain['genesis']:
@@ -44,13 +86,30 @@ async def publish(args):
                 raise ValueError('assignment_accounting_chain_provenance_mismatch')
             await assignment.verify_emissions(client, a, getattr(args, 'verification_root', None), persist=True)
         p = assignment.project(domain, view, s, payload)
+        activation = requested
+        if activation is not None:
+            if type(activation) is not int or activation < 0:
+                raise ValueError('invalid_burn_rotation_activation_epoch')
+            if s['SubnetEpochIndex'] >= activation:
+                selection = await burn_selection.from_chain(client, p)
+                p = assignment.project(domain, view, s, payload, burn_selection=selection)
         envelope = sign(p, key)
         assignment.authenticate(json.dumps(envelope), expected, domain, view, s)
-    output = Path(args.output).absolute()
-    if output.is_symlink():
-        raise ValueError('assignment_output_symlink')
-    output.mkdir(parents=True, exist_ok=True)
     target = output / (str(s['SubnetEpochIndex']) + '.json')
+    # Refuse a conflicting existing assignment before pinning new policy. Pin
+    # before exposing a new assignment so a crash cannot silently revert v2.
+    if target.is_symlink():
+        raise ValueError('immutable_file_conflict')
+    try:
+        with target.open('rb') as f:
+            previous = strict_json(f.read(2_000_001))
+    except FileNotFoundError:
+        pass
+    else:
+        if previous != envelope:
+            raise ValueError('immutable_file_conflict')
+    if requested is not None and pinned is None:
+        atomic_json(activation_path, {'policy': assignment.ROTATING_POLICY, 'fromChainEpoch': requested}, immutable=True)
     atomic_json(target, envelope, immutable=True)
     target.chmod(0o644)
     return {'state': 'assignment_published_locally', 'chainEpoch': s['SubnetEpochIndex'],
@@ -64,6 +123,8 @@ def main():
     for name in ('epochs-dir', 'output', 'signing-key'):
         p.add_argument('--'+name, required=True)
     p.add_argument('--expected-public-key')
+    p.add_argument('--burn-rotation-from-chain-epoch', type=int,
+                   help='Opt in to v2 deterministic owner-burn assignments from a future chain epoch, after all validators upgrade')
     a = p.parse_args()
     print(json.dumps(asyncio.run(asyncio.wait_for(publish(a), timeout=180))))
 

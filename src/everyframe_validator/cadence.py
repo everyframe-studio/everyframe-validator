@@ -13,33 +13,36 @@ import sqlite3
 from .core.chain_scope import scope, read_network, check_authorization, rpc_options
 from .core.reward_policy import digest, seal_epoch
 from .core.validator import epoch_weight_plan
+from .core.burn_selection import resolve as resolve_burn
 from .core.submission import prepare, recover
 from .feed import fetch, verify, FeedUnavailable
 from .state import read_private, atomic_json, journal_rows
 
 
-def burn_plan(neurons, hotkey, params, owner, owner_hotkey):
+def burn_plan(neurons, hotkey, params, owner, owner_hotkey, *, burn_selection=None):
     by_key = {n['hotkey']: n for n in neurons}
     if len(by_key) != len(neurons) or len({n['uid'] for n in neurons}) != len(neurons):
         raise ValueError('duplicate metagraph identity')
     if any(type(n['uid']) is not int or not 0 <= n['uid'] <= 65535 for n in neurons):
         raise ValueError('invalid UID')
-    validator, burn = by_key.get(hotkey), by_key.get(owner_hotkey)
+    validator = by_key.get(hotkey)
     if not validator or validator.get('validator_permit') is not True:
         raise ValueError('validator has no permit')
-    if not owner or not burn or burn['coldkey'] != owner:
-        raise ValueError('burn target is not the registered subnet owner hotkey')
+    burn = resolve_burn(neurons, owner, owner_hotkey, burn_selection)
     if (type(params['min_allowed_weights']) is not int
             or not 0 <= params['min_allowed_weights'] <= 1
             or type(params['max_weights_limit']) is not int
             or params['max_weights_limit'] != 65535):
         raise ValueError('burn weights violate chain constraints')
     uid = burn['uid']
-    return {'state': 'ready', 'policy': 'missing-accounting-burn-v1',
+    plan = {'state': 'ready', 'policy': 'missing-accounting-burn-v1',
             'weights': {uid: 65535}, 'quantized': {uid: 65535},
-            'identities': {uid: owner_hotkey}, 'validatorUid': validator['uid'],
-            'burnUid': uid, 'burnHotkey': owner_hotkey, 'ownerColdkey': owner,
+            'identities': {uid: burn['hotkey']}, 'validatorUid': validator['uid'],
+            'burnUid': uid, 'burnHotkey': burn['hotkey'], 'ownerColdkey': owner,
             'allBurn': True, 'accountingAvailable': False}
+    if burn_selection is not None:
+        plan['burnSelection'] = dict(burn_selection)
+    return plan
 
 
 async def snapshot(client, domain, config):
