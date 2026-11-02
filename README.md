@@ -7,6 +7,8 @@ provider API keys, GPU, Phala account, or miner TEE is required.
 
 ## Release status
 
+Version **0.7.0** adds an explicitly accepted AI Film Contest Pool recipient and an opt-in Docker Compose updater. Contest funding stays inactive until a verified non-owner recipient and future activation epoch are configured. See [CONTEST-POOL.md](CONTEST-POOL.md) and [AUTO-UPDATE.md](AUTO-UPDATE.md). The updater preserves local signing consent and does not accept a new pool address automatically.
+
 Version **0.6.0** adds deterministic owner burn selection tied to each signed
 accounting assignment. Every validator independently verifies the eligible owner
 UIDs at the same finalized snapshot, then derives the same target. Only unused

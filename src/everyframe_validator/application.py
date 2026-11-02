@@ -59,6 +59,17 @@ async def inspect(client, row, head, pending):
                 query('Owner', [selection['hotkey']], block))
             if owner != selection['ownerColdkey'] or actual_owner != owner:
                 return False
+        pool = record['plan'].get('contestPool')
+        if pool is not None:
+            from .core.contest_pool import validate
+            validate(pool)
+            if (pool['uid'] != record['plan']['contestPoolUid']
+                    or pool['hotkey'] != record['plan']['contestPoolHotkey']):
+                return False
+            owner, actual_owner = await asyncio.gather(
+                query('SubnetOwner', [netuid], block), query('Owner', [pool['hotkey']], block))
+            if owner != pool['ownerColdkey'] or actual_owner != pool['coldkey'] or actual_owner == owner:
+                return False
         return True
     if not report.get('revealConfirmed'):
         if record['commitReveal']:

@@ -1,3 +1,10 @@
+# EveryFrame Validator 0.7.0
+
+- Add separately accounted AI Film Contest Pool funding from the unused miner allocation after serving fees, bonuses and eligible recoveries.
+- Require independent verification and explicit local acceptance of the non-owner pool identity. Preserve historical burn assignments and reject policy downgrades.
+- Add an opt-in host updater for official Docker Compose deployments: stable releases, immutable images, verified checksums, graceful stop, offline preflight and readiness checks. State and signing consent are preserved.
+- Keep contest funding disabled until coordinated activation. The owner bonus policy is 10–50% for future reports.
+
 # EveryFrame Validator v0.6.0
 
 - Add deterministic owner burn selection. All validators derive the same burn

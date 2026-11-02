@@ -146,3 +146,7 @@ the future epoch's real remaining pool after current work; no old emission pool
 is added, no historical signed report is changed, and insufficient capacity stays
 outstanding. Sealing reserves a claim as in flight, not paid. A reviewed failed or
 partial outcome reopens only its unpaid remainder; unreconciled claims never retry.
+
+## Contest allocation (v0.7.0)
+
+Assignment v3 (`epoch-start-contest-pool-v3`) explicitly separates unused allocation sent to a registered non-owner contest recipient. Reader consent, finalized identity checks, durable activation and no-downgrade requirements are specified in [CONTEST-POOL.md](CONTEST-POOL.md). This is not burned supply or proof of miner work. Legacy assignments and pending commitments keep their original interpretation.

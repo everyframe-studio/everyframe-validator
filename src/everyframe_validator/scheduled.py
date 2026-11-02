@@ -322,8 +322,8 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
         def make_plan(v):
             args = (v['neurons'], config['validatorHotkey'], v['params'], v['owner'], v['ownerHotkey'])
             selection = selected.get('burnSelection')
-            return (epoch_weight_plan(payload['artifact'], payload['bindings'], *args, burn_selection=selection)
-                    if payload else cadence.burn_plan(*args, burn_selection=selection))
+            return (epoch_weight_plan(payload['artifact'], payload['bindings'], *args, burn_selection=selection, contest_pool=selected.get('contestPool'))
+                    if payload else cadence.burn_plan(*args, burn_selection=selection, contest_pool=selected.get('contestPool')))
         plan = make_plan(view)
         fresh = await cadence.snapshot(client, domain, config)
         fresh_s = await schedule(client, domain, fresh['block'])
@@ -331,7 +331,7 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
                 or fresh_s['RevealPeriodEpochs'] != s['RevealPeriodEpochs']
                 or fresh['params'] != view['params'] or (submit and gate(fresh, fresh_s, rows))
                 or make_plan(fresh) != plan or (submit and fresh['block'] < cadence.due_at(rows, fresh, interval))
-                or assignment.project(domain,fresh,fresh_s,payload, burn_selection=selected.get('burnSelection')) != selected):
+                or assignment.project(domain,fresh,fresh_s,payload, burn_selection=selected.get('burnSelection'), contest_pool=selected.get('contestPool')) != selected):
             return {**common, 'state': 'deferred', 'reason': 'chain_changed_before_signing'}
         record = {**domain, 'block': fresh['block'], 'validatorHotkey': config['validatorHotkey'],
                   'plan': plan, 'versionKey': config['versionKey'], 'epoch': epoch, 'openEpoch': view['epoch'] + 1,
@@ -347,6 +347,9 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
             result.update(burnUid=plan['burnUid'], burnHotkey=plan['burnHotkey'],
                           burnPolicy=selected['burnSelection']['policy'],
                           burnCandidateCount=selected['burnSelection']['candidateCount'])
+        if 'contestPool' in selected:
+            result.update(contestPool=selected['contestPool'], contestPoolBudgetUnits=plan['contestPoolBudgetUnits'],
+                          allContestPool=plan.get('allContestPool', False))
         if not submit:
             return result
         from .wallet import checked_wallet, check_signer
@@ -371,7 +374,7 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
                         or final_s['LastEpochBlock'] != s['LastEpochBlock']
                         or final_s['RevealPeriodEpochs'] != s['RevealPeriodEpochs']
                         or final['params'] != fresh['params'] or gate(final, final_s, rows)
-                        or assignment.project(domain,final,final_s,payload, burn_selection=selected.get('burnSelection')) != selected
+                        or assignment.project(domain,final,final_s,payload, burn_selection=selected.get('burnSelection'), contest_pool=selected.get('contestPool')) != selected
                         or make_plan(final) != plan or final['lastUpdate'] != fresh['lastUpdate']
                         or final['pending'] != fresh['pending'] or final['block'] - record['block'] > 15):
                     raise ValueError('chain_changed_before_broadcast')

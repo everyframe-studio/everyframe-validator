@@ -133,7 +133,16 @@ async def doctor(path, offline=False, check_emissions=False):
                     s = await schedule(client,domain,head)
                     raw = await asyncio.to_thread(fetch,assignment.feed_url(c['feed']),s['SubnetEpochIndex'])
                     selected = assignment.authenticate(raw,c['publicKey'],domain,view,s)
+                    from .core import contest_pool
+                    await contest_pool.verify(client,selected,root)
                     await assignment.verify_burn(client,selected,root)
+                    if 'contestPool' in selected:
+                        current_owner, current_owner_hotkey = await asyncio.gather(
+                            client.query(('SubtensorModule','SubnetOwner'), [domain['netuid']], block=head),
+                            client.query(('SubtensorModule','SubnetOwnerHotkey'), [domain['netuid']], block=head))
+                        contest_pool.resolve([{'uid':n.uid,'hotkey':n.hotkey,'coldkey':n.coldkey} for n in graph.neurons],
+                                             current_owner,current_owner_hotkey,selected['contestPool'])
+                        checks.append({'name':'contestPool','ok':True, **selected['contestPool']})
                     checks.append({'name':'canonicalAssignment','ok':True,'chainEpoch':s['SubnetEpochIndex'],
                                    'accountingEpoch':selected['accountingEpoch'],'mode':selected['mode']})
                     if 'burnSelection' in selected:

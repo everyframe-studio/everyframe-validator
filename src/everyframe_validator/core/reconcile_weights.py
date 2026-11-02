@@ -8,7 +8,7 @@ from .chain_scope import scope, add_network, check_database, check_record, read_
 from .submission import recover
 
 
-def observation_matches(record, result, observed, last_update, identities, pending_commits=None, reveal_event=None, burn_ownership=None):
+def observation_matches(record, result, observed, last_update, identities, pending_commits=None, reveal_event=None, burn_ownership=None, contest_ownership=None):
     expected = {int(uid): int(value) for uid, value in record['plan']['quantized'].items()}
     actual = {int(uid): int(value) for uid, value in observed}
     if len(actual) != len(observed) or actual != expected:
@@ -30,6 +30,11 @@ def observation_matches(record, result, observed, last_update, identities, pendi
         plan = record['plan']
         if burn_ownership != {'owner': plan['ownerColdkey'], 'hotkey': plan['burnHotkey'],
                               'coldkey': plan['ownerColdkey'], 'uid': plan['burnUid']}:
+            return False
+    if record['plan'].get('contestPool') is not None:
+        pool = record['plan']['contestPool']
+        if contest_ownership != {'owner': pool['ownerColdkey'], 'hotkey': pool['hotkey'],
+                                 'coldkey': pool['coldkey'], 'uid': pool['uid']}:
             return False
     return all(identities.get(int(uid)) == key for uid, key in record['plan']['identities'].items())
 
@@ -89,6 +94,16 @@ async def reconcile_database(args, domain, db):
             identities = {int(target): await client.query(('SubtensorModule', 'Keys'), [netuid, int(target)], block=block)
                           for target in record['plan']['identities']}
             burn_ownership = None
+            contest_ownership = None
+            if record['plan'].get('contestPool') is not None:
+                from .contest_pool import resolve
+                owner, owner_hotkey, graph = await asyncio.gather(
+                    client.query(('SubtensorModule', 'SubnetOwner'), [netuid], block=block),
+                    client.query(('SubtensorModule', 'SubnetOwnerHotkey'), [netuid], block=block),
+                    client.subnets.metagraph(netuid, block=block, commitments=False))
+                checked = resolve([{'uid': n.uid, 'hotkey': n.hotkey, 'coldkey': n.coldkey}
+                                   for n in graph.neurons], owner, owner_hotkey, record['plan']['contestPool'])
+                contest_ownership = {'owner': owner, **{k: checked[k] for k in ('hotkey', 'coldkey', 'uid')}}
             if record.get('policy') == 'epoch-value-cap-burn-v2':
                 owner, owner_hotkey, graph = await asyncio.gather(
                     client.query(('SubtensorModule', 'SubnetOwner'), [netuid], block=block),
@@ -130,7 +145,7 @@ async def reconcile_database(args, domain, db):
                 db.execute('UPDATE weight_runs SET result=? WHERE id=?', (json.dumps(result), run_id))
                 db.commit()
             matches = observation_matches(record, result, observed or [],
-                                          updates[uid] if uid < len(updates or []) else 0, identities, pending, result.get('revealEvent'), burn_ownership)
+                                          updates[uid] if uid < len(updates or []) else 0, identities, pending, result.get('revealEvent'), burn_ownership, contest_ownership)
             report = {'runId': run_id, 'netuid': netuid, 'finalizedBlock': block,
                       'finalizedBlockHash': block_hash, 'weights': observed,
                       'matched': matches, 'submittedTransaction': False, 'revealEvent': result.get('revealEvent'),

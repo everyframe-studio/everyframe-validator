@@ -11,6 +11,7 @@ import sys
 
 from .reward_policy import POLICY, cap_burn, digest, load_epoch, pool_microusd
 from .burn_selection import resolve as resolve_burn
+from . import contest_pool as contest
 from .chain_scope import scope, add_network, bind_database, check_database, check_record, check_authorization, read_network, rpc_options
 from .submission import prepare
 
@@ -103,7 +104,7 @@ def weight_plan(scores, bindings, neurons, validator_hotkey, params):
             'quantized': dict(zip(uids, quantized)), 'validatorUid': validator['uid']}
 
 
-def epoch_weight_plan(artifact, bindings, neurons, validator_hotkey, params, owner, owner_hotkey, *, burn_selection=None):
+def epoch_weight_plan(artifact, bindings, neurons, validator_hotkey, params, owner, owner_hotkey, *, burn_selection=None, contest_pool=None):
     """Value-proportional cap/burn, with an owner-verified burn identity exception."""
     pool = pool_microusd(artifact)
     by_hotkey = {n['hotkey']: n for n in neurons}
@@ -114,7 +115,12 @@ def epoch_weight_plan(artifact, bindings, neurons, validator_hotkey, params, own
     validator = by_hotkey.get(validator_hotkey)
     if not validator or validator.get('validator_permit') is not True:
         raise ValueError('validator has no permit')
-    burn = resolve_burn(neurons, owner, owner_hotkey, burn_selection)
+    if burn_selection is not None and contest_pool is not None:
+        raise ValueError('conflicting_remainder_policies')
+    burn = (contest.resolve(neurons, owner, owner_hotkey, contest_pool) if contest_pool is not None
+            else resolve_burn(neurons, owner, owner_hotkey, burn_selection))
+    if contest_pool is not None and burn['hotkey'] == validator_hotkey:
+        raise ValueError('validator_cannot_be_contest_pool')
     if len(set(bindings.values())) != len(bindings):
         raise ValueError('duplicate operator hotkey binding')
     scores = artifact['window']['scores']
@@ -127,6 +133,8 @@ def epoch_weight_plan(artifact, bindings, neurons, validator_hotkey, params, own
         uid = by_hotkey[hotkey]['uid']
         value = row['earningsMicrousd'] + row['surchargeMicrousd']
         if value:
+            if contest_pool is not None and uid == burn['uid']:
+                raise ValueError('contest_pool_cannot_earn_serving_weights')
             values[uid] = value
             identities[uid] = hotkey
     weights = cap_burn(values, pool, burn['uid'])
@@ -146,6 +154,11 @@ def epoch_weight_plan(artifact, bindings, neurons, validator_hotkey, params, own
             'burnBudgetUnits': weights.get(burn['uid'], 0), 'allocationBudgetUnits': 65535}
     if burn_selection is not None:
         plan['burnSelection'] = dict(burn_selection)
+    if contest_pool is not None:
+        plan.update(policy=contest.WEIGHT_POLICY, contestPool=dict(contest_pool),
+                    contestPoolBudgetUnits=plan.pop('burnBudgetUnits'),
+                    contestPoolUid=plan.pop('burnUid'), contestPoolHotkey=plan.pop('burnHotkey'),
+                    allContestPool=not values, allBurn=False)
     return plan
 
 
