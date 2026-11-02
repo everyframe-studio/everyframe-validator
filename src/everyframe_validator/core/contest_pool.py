@@ -4,6 +4,7 @@ import re
 
 from .reward_policy import digest
 from ..state import read_private, atomic_json
+from . import prize_pool
 
 POLICY = 'contest-pool-remainder-v1'
 WEIGHT_POLICY = 'epoch-value-contest-pool-v1'
@@ -22,6 +23,8 @@ def identity(value):
 
 
 def validate(value, assigned=None):
+    if isinstance(value, dict) and value.get('policy') == prize_pool.POLICY:
+        return prize_pool.validate(value, assigned)
     if (not isinstance(value, dict) or set(value) != KEYS or value['policy'] != POLICY
             or type(value['uid']) is not int or not 0 <= value['uid'] <= 65535
             or type(value['snapshotBlock']) is not int or value['snapshotBlock'] <= 0
@@ -49,6 +52,8 @@ def resolve(neurons, owner, owner_hotkey, value):
 
 
 async def from_chain(client, assigned, recipient):
+    if set(recipient) == {'coldkey'}:
+        return await prize_pool.from_chain(client, assigned, recipient)
     identity(recipient)
     block, netuid = assigned['chainEpochStart'], assigned['netuid']
     if await client._substrate.block_hash(block) != assigned['chainEpochStartHash']:
@@ -97,6 +102,8 @@ async def verify(client, assigned, root=None, *, persist=False):
             raise ValueError('invalid_contest_pool_pin')
         identity({k: pinned[k] for k in ('hotkey', 'coldkey')})
     value = assigned.get('contestPool')
+    if isinstance(value, dict) and value.get('policy') == prize_pool.POLICY:
+        return
     if value is None:
         if pinned and assigned['chainEpoch'] >= pinned['firstChainEpoch']:
             raise ValueError('contest_pool_policy_downgrade')

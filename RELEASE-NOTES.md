@@ -1,3 +1,10 @@
+# EveryFrame Validator 0.8.0
+
+- Select a prize-pool UID from all registered hotkeys under one accepted non-owner coldkey, using the signed report and finalized epoch snapshot.
+- Independently verify the candidate set and selection; preserve serving weights and pin the recipient for each epoch.
+- Accept the pool coldkey once; new registered pool hotkeys become eligible in subsequent snapshots.
+- Preserve old assignments and existing commitments. Contest funding remains inactive until coordinated activation.
+
 # EveryFrame Validator 0.7.0
 
 - Add separately accounted AI Film Contest Pool funding from the unused miner allocation after serving fees, bonuses and eligible recoveries.
