@@ -25,7 +25,7 @@ def contest_activation(args, output):
     if any(v is not None for v in values):
         epoch, hotkey, coldkey = values
         if coldkey is None or type(epoch) is not int or epoch < 0:
-            raise ValueError('contest_pool_requires_future_epoch_and_both_addresses')
+            raise ValueError('contest_pool_requires_future_epoch_and_coldkey')
         if hotkey:
             contest_pool.identity({'hotkey': hotkey, 'coldkey': coldkey})
             requested = {'policy':assignment.CONTEST_POLICY, 'fromChainEpoch':epoch, 'hotkey':hotkey, 'coldkey':coldkey}

@@ -103,7 +103,7 @@ def main():
                       "message": "Profile ready. Feed availability and validator permit are checked during run."}
         elif args.command == 'accept-contest-pool':
             if not args.yes:
-                p.error('accept-contest-pool requires --yes after reviewing both published addresses')
+                p.error('accept-contest-pool requires --yes after reviewing the published prize-pool coldkey')
             from .core import contest_pool, prize_pool
             with locked(root) as directory:
                 load_config(directory)
