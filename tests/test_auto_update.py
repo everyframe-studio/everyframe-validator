@@ -74,7 +74,8 @@ def deployment(tmp_path, monkeypatch):
         if args[:2] == ['docker','compose']:
             op = args[6]
             if op == 'ps': return 'container'
-            if op == 'run': return json.dumps({'ok': runtime['fail'] != 'preflight', 'signingPrerequisitesOk':True})
+            if op == 'run': return json.dumps({'ok': runtime['fail'] != 'preflight', 'signingPrerequisitesOk':None,
+                    'checks':[{'name':'wallet','ok':True},{'name':'authorization','ok':True,'remainingSubmissions':10}]})
             if op == 'up':
                 runtime['started'] = True
                 if runtime['fail'] == 'start': raise RuntimeError('provider failed')

@@ -231,7 +231,10 @@ def tick(root, *, check=False, get_latest=latest):
             # The previous process has exited. Offline doctor never signs or rewrites journals.
             result = json.loads(compose(root, config, 'run', '--rm', '--no-deps', config['service'],
                                         'doctor', '--state-dir', config['stateDir'], '--offline'))
-            if not result.get('ok') or (config['signing'] and not result.get('signingPrerequisitesOk')):
+            local = {c.get('name'): c for c in result.get('checks', [])}
+            if (not result.get('ok') or (config['signing'] and
+                    (not all(local.get(name, {}).get('ok') is True for name in ('wallet', 'authorization'))
+                     or local['authorization'].get('remainingSubmissions', 0) <= 0))):
                 raise ValueError('candidate_offline_preflight_failed')
             write(root / 'pending.json', {'previous': current, 'candidate': candidate, 'stage': 'starting', 'at': int(time.time())})
             compose(root, config, 'up', '-d', '--no-deps', '--no-build', '--pull', 'never',
