@@ -41,6 +41,11 @@ def parser():
         commands[name] = sub.add_parser(name, help=help_text)
     for item in commands.values():
         item.add_argument("--state-dir", required=True, help="Dedicated private directory for this network and hotkey")
+    pool = sub.add_parser('accept-contest-pool', help='Accept the published non-owner contest recipient locally; does not authorize signing')
+    pool.add_argument('--state-dir', required=True)
+    pool.add_argument('--hotkey', required=True)
+    pool.add_argument('--coldkey', required=True)
+    pool.add_argument('--yes', action='store_true', help='Accept that unused miner allocation funds AI film contests')
     commands["run"].add_argument("--submit", action="store_true", help="Sign using your local wallet; also requires authorize")
     commands["run"].add_argument("--once", action="store_true")
     for name in ('run', 'doctor', 'reconcile'):
@@ -96,6 +101,13 @@ def main():
             initialize(root, config)
             result = {"state": "initialized", "netuid": config["netuid"], "signingEnabled": False,
                       "message": "Profile ready. Feed availability and validator permit are checked during run."}
+        elif args.command == 'accept-contest-pool':
+            if not args.yes:
+                p.error('accept-contest-pool requires --yes after reviewing both published addresses')
+            from .core.contest_pool import accept
+            with locked(root) as directory:
+                load_config(directory)
+                result = accept(directory, {'hotkey': args.hotkey, 'coldkey': args.coldkey})
         elif args.command == "authorize":
             if not args.yes or not 1 <= args.days <= 365 or not 1 <= args.max_submissions <= 1000000:
                 p.error("authorize requires --yes, --days 1..365 and --max-submissions 1..1000000")

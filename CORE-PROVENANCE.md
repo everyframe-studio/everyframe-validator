@@ -57,3 +57,5 @@ switch can enable synthetic work rewards.
 
 Mainnet remains an explicit operator action. Creating, installing, building or
 testing this package does not authorize transactions or production deployment.
+
+EveryFrame v0.7.0 adds the original `core/contest_pool.py` implementation and explicit signed contest allocation. It reuses the existing cap arithmetic without changing serving shares. Contest funding and the host updater are EveryFrame additions, not copied SayGM behavior.

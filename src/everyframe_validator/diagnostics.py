@@ -11,6 +11,15 @@ from .wallet import WalletConfigurationError
 
 
 ERRORS = {
+    'contest_pool_acceptance_required': ('contest_pool_acceptance_required', 'Review the published contest-pool hotkey and coldkey, then use accept-contest-pool --yes with your existing state directory. No signing permission was changed.'),
+    'contest_pool_consent_mismatch': ('contest_pool_consent_mismatch', 'The signed contest recipient differs from your accepted identity. Preserve state and verify the published addresses.'),
+    'contest_pool_identity_changed': ('contest_pool_identity_changed', 'The contest recipient UID or ownership changed. Submission is stopped; preserve state and check the finalized registration.'),
+    'contest_pool_policy_downgrade': ('contest_pool_policy_downgrade', 'An older allocation policy appeared after contest funding was activated. Preserve the journal and check the publisher.'),
+    'contest_pool_not_registered': ('contest_pool_not_registered', 'The contest hotkey is not registered under the specified coldkey. No allocation was sent.'),
+    'contest_pool_activation_must_be_future': ('contest_pool_activation_must_be_future', 'Choose a future chain epoch after participating validators upgrade and accept the recipient.'),
+    'contest_pool_activation_conflict': ('contest_pool_activation_conflict', 'The requested contest configuration differs from its durable marker. Preserve the marker and coordinate a migration.'),
+    'contest_pool_must_not_belong_to_owner': ('contest_pool_must_not_belong_to_owner', 'Use the registered contest miner under a separate non-owner coldkey.'),
+    'contest_pool_does_not_match_chain': ('contest_pool_does_not_match_chain', 'The signed contest identity does not match the finalized chain snapshot. No weights were submitted.'),
     'invalid_burn_owner_snapshot': ('invalid_burn_snapshot', 'The RPC returned invalid owner or metagraph evidence for the pinned block. No alternate target was chosen.'),
     'invalid_burn_selection_seed': ('invalid_burn_selection', 'The deterministic burn seed or candidate count is invalid. No weights were submitted.'),
     'invalid_burn_rotation_activation_epoch': ('invalid_burn_activation', 'Use a nonnegative chain epoch for the coordinated burn-policy activation.'),

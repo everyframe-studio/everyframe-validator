@@ -14,12 +14,13 @@ from .core.chain_scope import scope, read_network, check_authorization, rpc_opti
 from .core.reward_policy import digest, seal_epoch
 from .core.validator import epoch_weight_plan
 from .core.burn_selection import resolve as resolve_burn
+from .core import contest_pool as contest
 from .core.submission import prepare, recover
 from .feed import fetch, verify, FeedUnavailable
 from .state import read_private, atomic_json, journal_rows
 
 
-def burn_plan(neurons, hotkey, params, owner, owner_hotkey, *, burn_selection=None):
+def burn_plan(neurons, hotkey, params, owner, owner_hotkey, *, burn_selection=None, contest_pool=None):
     by_key = {n['hotkey']: n for n in neurons}
     if len(by_key) != len(neurons) or len({n['uid'] for n in neurons}) != len(neurons):
         raise ValueError('duplicate metagraph identity')
@@ -28,7 +29,12 @@ def burn_plan(neurons, hotkey, params, owner, owner_hotkey, *, burn_selection=No
     validator = by_key.get(hotkey)
     if not validator or validator.get('validator_permit') is not True:
         raise ValueError('validator has no permit')
-    burn = resolve_burn(neurons, owner, owner_hotkey, burn_selection)
+    if burn_selection is not None and contest_pool is not None:
+        raise ValueError('conflicting_remainder_policies')
+    burn = (contest.resolve(neurons, owner, owner_hotkey, contest_pool) if contest_pool is not None
+            else resolve_burn(neurons, owner, owner_hotkey, burn_selection))
+    if contest_pool is not None and burn['hotkey'] == hotkey:
+        raise ValueError('validator_cannot_be_contest_pool')
     if (type(params['min_allowed_weights']) is not int
             or not 0 <= params['min_allowed_weights'] <= 1
             or type(params['max_weights_limit']) is not int
@@ -42,6 +48,11 @@ def burn_plan(neurons, hotkey, params, owner, owner_hotkey, *, burn_selection=No
             'allBurn': True, 'accountingAvailable': False}
     if burn_selection is not None:
         plan['burnSelection'] = dict(burn_selection)
+    if contest_pool is not None:
+        plan.update(policy=contest.WEIGHT_POLICY, contestPool=dict(contest_pool),
+                    contestPoolUid=plan.pop('burnUid'), contestPoolHotkey=plan.pop('burnHotkey'),
+                    contestPoolBudgetUnits=65535, allocationBudgetUnits=65535,
+                    allContestPool=True, allBurn=False)
     return plan
 
 

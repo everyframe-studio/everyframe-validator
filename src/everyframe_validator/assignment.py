@@ -15,11 +15,14 @@ from .core.emission_policy import CHAIN_SHARE_POLICY, verify_chain_evidence
 from .feed import fetch, strict_json, public_key, exact_keys, verify, validate_url
 from .state import atomic_json, read_private
 from .core import burn_selection as burn
+from .core import contest_pool as contest
 
 SCHEMA = 'everyframe.validator.assignment.v1'
 POLICY = 'epoch-start-accounting-v1'
 ROTATING_SCHEMA = 'everyframe.validator.assignment.v2'
 ROTATING_POLICY = 'epoch-start-accounting-burn-v2'
+CONTEST_SCHEMA = 'everyframe.validator.assignment.v3'
+CONTEST_POLICY = 'epoch-start-contest-pool-v3'
 KEYS = {'schema', 'policy', 'network', 'netuid', 'genesis', 'chainEpoch', 'chainEpochStart',
         'chainEpochStartHash', 'previousChainEpochStart', 'cutoffBlock', 'accountingEpoch',
         'blocksPerEpoch', 'mode', 'payloadHash'}
@@ -45,7 +48,9 @@ def target(view, s):
     return epoch, ('scheduled_reuse_burn' if previous // period - 1 == epoch else 'signed_epoch')
 
 
-def project(domain, view, s, payload=None, *, burn_selection=None):
+def project(domain, view, s, payload=None, *, burn_selection=None, contest_pool=None):
+    if burn_selection is not None and contest_pool is not None:
+        raise ValueError('conflicting_remainder_policies')
     epoch, mode = target(view, s)
     if mode == 'signed_epoch':
         if payload is None or payload['artifact']['epoch'] != epoch:
@@ -64,6 +69,11 @@ def project(domain, view, s, payload=None, *, burn_selection=None):
     if burn_selection is not None:
         burn.validate(burn_selection, p)
         p.update(schema=ROTATING_SCHEMA, policy=ROTATING_POLICY, burnSelection=burn_selection)
+    if contest_pool is not None:
+        contest.validate(contest_pool, p)
+        p.update(schema=CONTEST_SCHEMA, policy=CONTEST_POLICY, contestPool=contest_pool)
+        if mode == 'scheduled_reuse_burn':
+            p['mode'] = 'scheduled_reuse_pool'
     return p
 
 
@@ -72,23 +82,28 @@ def authenticate(raw, key, domain, view, s):
     exact_keys(envelope, {'payload', 'signature'})
     p = envelope['payload']
     rotating = isinstance(p, dict) and p.get('schema') == ROTATING_SCHEMA
-    exact_keys(p, KEYS | ({'burnSelection'} if rotating else set()))
+    funding = isinstance(p, dict) and p.get('schema') == CONTEST_SCHEMA
+    exact_keys(p, KEYS | ({'burnSelection'} if rotating else {'contestPool'} if funding else set()))
     public_key(key).verify(base64.b64decode(envelope['signature'], validate=True),
                            canonical(p).encode())
     check_record(p, domain)
     epoch, mode = target(view, s)
-    expected = {'schema': ROTATING_SCHEMA if rotating else SCHEMA,
-                'policy': ROTATING_POLICY if rotating else POLICY, **domain, 'chainEpoch': s['SubnetEpochIndex'],
+    if funding and mode == 'scheduled_reuse_burn':
+        mode = 'scheduled_reuse_pool'
+    expected = {'schema': CONTEST_SCHEMA if funding else ROTATING_SCHEMA if rotating else SCHEMA,
+                'policy': CONTEST_POLICY if funding else ROTATING_POLICY if rotating else POLICY, **domain, 'chainEpoch': s['SubnetEpochIndex'],
                 'chainEpochStart': s['LastEpochBlock'], 'chainEpochStartHash': s['chainEpochStartHash'],
                 'previousChainEpochStart': s['previousChainEpochStart'], 'cutoffBlock': s['LastEpochBlock'],
                 'accountingEpoch': epoch, 'blocksPerEpoch': view['params']['tempo'] + 1, 'mode': mode}
     if (any(p[k] != v or type(p[k]) is not type(v) for k,v in expected.items())
-            or (mode == 'scheduled_reuse_burn' and p['payloadHash'] is not None)
+            or (mode in ('scheduled_reuse_burn', 'scheduled_reuse_pool') and p['payloadHash'] is not None)
             or (mode == 'signed_epoch' and (not isinstance(p['payloadHash'], str)
                 or len(p['payloadHash']) != 64 or any(c not in '0123456789abcdef' for c in p['payloadHash'])))):
         raise ValueError('assignment_does_not_match_finalized_chain_epoch')
     if rotating:
         burn.validate(p['burnSelection'], p)
+    if funding:
+        contest.validate(p['contestPool'], p)
     return p
 
 
@@ -106,7 +121,7 @@ async def verify_burn(client, assigned, root=None, *, persist=False):
                 or pinned['firstChainEpoch'] < 0):
                 raise ValueError('invalid_burn_policy_pin')
     if 'burnSelection' not in assigned:
-        if pinned and assigned['chainEpoch'] >= pinned['firstChainEpoch']:
+        if 'contestPool' not in assigned and pinned and assigned['chainEpoch'] >= pinned['firstChainEpoch']:
             raise ValueError('burn_policy_downgrade')
         return
     burn.validate(assigned['burnSelection'], assigned)
@@ -169,13 +184,14 @@ async def verify_report(client, raw, key, domain, view, assignment, root=None, *
 async def load(client, root, config, domain, view, s):
     raw = await asyncio.to_thread(fetch, feed_url(config['feed']), s['SubnetEpochIndex'])
     assignment = authenticate(raw, config['publicKey'], domain, view, s)
+    await contest.verify(client, assignment, root, persist=True)
     await verify_burn(client, assignment, root, persist=True)
     accepted = root / 'assignments'
     accepted.mkdir(mode=0o700, exist_ok=True)
     atomic_json(accepted / (str(s['SubnetEpochIndex']) + '.json'),
                 {'assignmentHash': digest(assignment)}, immutable=True)
     epoch = assignment['accountingEpoch']
-    if assignment['mode'] == 'scheduled_reuse_burn':
+    if assignment['mode'] in ('scheduled_reuse_burn', 'scheduled_reuse_pool'):
         return None, epoch, assignment
     raw = await asyncio.to_thread(fetch, config['feed'], epoch)
     payload = await verify_report(client,raw,config['publicKey'],domain,view,assignment,root,persist=True)

@@ -155,6 +155,10 @@ jobs:
           cp deploy/README.md dist/DEPLOYMENT.md
           cp OWNER-ACCOUNTING.md dist/OWNER-ACCOUNTING.md
           cp BURN-ROTATION.md dist/BURN-ROTATION.md
+          cp CONTEST-POOL.md dist/CONTEST-POOL.md
+          cp AUTO-UPDATE.md dist/AUTO-UPDATE.md
+          cp deploy/auto-update.py dist/auto-update.py
+          cp deploy/auto-update.json dist/auto-update.json
           python - <<'PY'
           from pathlib import Path
           notes = Path('RELEASE-NOTES.md').read_text().split('\n# EveryFrame Validator ', 1)[0]
@@ -163,7 +167,7 @@ jobs:
           cp deploy/everyframe-assignment-publisher.service dist/everyframe-assignment-publisher.service
           cp deploy/everyframe-assignment-publisher.timer dist/everyframe-assignment-publisher.timer
           cp deploy/assignment-feed.caddy dist/assignment-feed.caddy
-          (cd dist && sha256sum *.whl *.tar.gz image.txt compose.yaml deploy-release.py DEPLOYMENT.md OWNER-ACCOUNTING.md BURN-ROTATION.md RELEASE-NOTES.md everyframe-assignment-publisher.service everyframe-assignment-publisher.timer assignment-feed.caddy > SHA256SUMS)
+          (cd dist && sha256sum *.whl *.tar.gz image.txt compose.yaml deploy-release.py DEPLOYMENT.md OWNER-ACCOUNTING.md BURN-ROTATION.md CONTEST-POOL.md AUTO-UPDATE.md auto-update.py auto-update.json RELEASE-NOTES.md everyframe-assignment-publisher.service everyframe-assignment-publisher.timer assignment-feed.caddy > SHA256SUMS)
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --verify-tag --target "$SHA" --draft --title "EveryFrame Validator $TAG" --notes-file dist/RELEASE-NOTES.md
           fi

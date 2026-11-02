@@ -93,7 +93,8 @@ async def tick(args, key):
         expose(strict_json(raw),args.public_epochs,epoch)
     result = await publish_assignment(SimpleNamespace(network=args.network,expected_public_key=expected,
         signing_key=str(key),epochs_dir=str(root/'epochs'),output=str(root/'assignments'),verification_root=root,
-        burn_rotation_from_chain_epoch=getattr(args,'burn_rotation_from_chain_epoch',None)))
+        burn_rotation_from_chain_epoch=getattr(args,'burn_rotation_from_chain_epoch',None),
+        **{name: getattr(args, name, None) for name in ('contest_pool_from_chain_epoch', 'contest_pool_hotkey', 'contest_pool_coldkey')}))
     if result['chainEpoch'] != s['SubnetEpochIndex'] or result['accountingEpoch'] != epoch:
         return {'state':'waiting','reason':'chain_epoch_advanced_during_publication',
                 'chainTransactions':0,'walletAccess':False}
@@ -113,6 +114,9 @@ def main():
     for name in ('epochs','bindings','state-dir','public-epochs','public-assignments'):
         p.add_argument('--'+name,required=True)
     p.add_argument('--expected-public-key')
+    p.add_argument('--contest-pool-from-chain-epoch', type=int)
+    p.add_argument('--contest-pool-hotkey')
+    p.add_argument('--contest-pool-coldkey')
     p.add_argument('--burn-rotation-from-chain-epoch', type=int,
                    help='Future chain epoch for deterministic owner-burn selection; leave unset until all readers upgrade')
     args = p.parse_args()

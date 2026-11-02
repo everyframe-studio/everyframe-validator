@@ -15,6 +15,33 @@ from .publish import load_signing_key, sign
 from .scheduled import schedule
 from .state import atomic_json, read_private
 from .core import burn_selection
+from .core import contest_pool
+
+
+def contest_activation(args, output):
+    names = ('contest_pool_from_chain_epoch', 'contest_pool_hotkey', 'contest_pool_coldkey')
+    values = [getattr(args, k, None) for k in names]
+    requested = None
+    if any(v is not None for v in values):
+        epoch, hotkey, coldkey = values
+        if any(v is None for v in values) or type(epoch) is not int or epoch < 0:
+            raise ValueError('contest_pool_requires_future_epoch_and_both_addresses')
+        contest_pool.identity({'hotkey': hotkey, 'coldkey': coldkey})
+        requested = {'policy': assignment.CONTEST_POLICY, 'fromChainEpoch': epoch,
+                     'hotkey': hotkey, 'coldkey': coldkey}
+    path = output / 'contest-pool-activation.json'
+    try:
+        pinned = read_private(path)
+    except FileNotFoundError:
+        return requested, False
+    if (not isinstance(pinned, dict) or set(pinned) != {'policy', 'fromChainEpoch', 'hotkey', 'coldkey'}
+            or pinned['policy'] != assignment.CONTEST_POLICY or type(pinned['fromChainEpoch']) is not int
+            or pinned['fromChainEpoch'] < 0):
+        raise ValueError('invalid_contest_pool_activation')
+    contest_pool.identity({k: pinned[k] for k in ('hotkey', 'coldkey')})
+    if requested is not None and requested != pinned:
+        raise ValueError('contest_pool_activation_conflict')
+    return pinned, True
 
 
 async def publish(args):
@@ -45,6 +72,7 @@ async def _publish(args, output):
     domain = scope(profile['network'], profile['netuid'])
     expected = args.expected_public_key or profile['publicKey']
     key = load_signing_key(args.signing_key, expected)
+    contest, contest_pinned = contest_activation(args, output)
     requested = getattr(args, 'burn_rotation_from_chain_epoch', None)
     if requested is not None and (type(requested) is not int or requested < 0):
         raise ValueError('invalid_burn_rotation_activation_epoch')
@@ -70,6 +98,8 @@ async def _publish(args, output):
         params = await client.subnets.subnet_hyperparameters(domain['netuid'], block=block)
         view = {'block': block, 'params': params}
         s = await schedule(client, domain, block)
+        if contest and not contest_pinned and contest['fromChainEpoch'] <= s['SubnetEpochIndex']:
+            raise ValueError('contest_pool_activation_must_be_future')
         epoch, mode = assignment.target(view, s)
         payload = None
         if mode == 'signed_epoch':
@@ -86,8 +116,14 @@ async def _publish(args, output):
                 raise ValueError('assignment_accounting_chain_provenance_mismatch')
             await assignment.verify_emissions(client, a, getattr(args, 'verification_root', None), persist=True)
         p = assignment.project(domain, view, s, payload)
+        if contest and not contest_pinned:
+            await contest_pool.from_chain(client, p, {k: contest[k] for k in ('hotkey', 'coldkey')})
         activation = requested
-        if activation is not None:
+        if contest and s['SubnetEpochIndex'] >= contest['fromChainEpoch']:
+            recipient = {k: contest[k] for k in ('hotkey', 'coldkey')}
+            selection = await contest_pool.from_chain(client, p, recipient)
+            p = assignment.project(domain, view, s, payload, contest_pool=selection)
+        elif activation is not None:
             if type(activation) is not int or activation < 0:
                 raise ValueError('invalid_burn_rotation_activation_epoch')
             if s['SubnetEpochIndex'] >= activation:
@@ -110,6 +146,8 @@ async def _publish(args, output):
             raise ValueError('immutable_file_conflict')
     if requested is not None and pinned is None:
         atomic_json(activation_path, {'policy': assignment.ROTATING_POLICY, 'fromChainEpoch': requested}, immutable=True)
+    if contest and not contest_pinned:
+        atomic_json(output / 'contest-pool-activation.json', contest, immutable=True)
     atomic_json(target, envelope, immutable=True)
     target.chmod(0o644)
     return {'state': 'assignment_published_locally', 'chainEpoch': s['SubnetEpochIndex'],
@@ -123,6 +161,9 @@ def main():
     for name in ('epochs-dir', 'output', 'signing-key'):
         p.add_argument('--'+name, required=True)
     p.add_argument('--expected-public-key')
+    p.add_argument('--contest-pool-from-chain-epoch', type=int)
+    p.add_argument('--contest-pool-hotkey')
+    p.add_argument('--contest-pool-coldkey')
     p.add_argument('--burn-rotation-from-chain-epoch', type=int,
                    help='Opt in to v2 deterministic owner-burn assignments from a future chain epoch, after all validators upgrade')
     a = p.parse_args()
