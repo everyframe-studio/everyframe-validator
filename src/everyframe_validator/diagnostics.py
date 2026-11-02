@@ -11,6 +11,9 @@ from .wallet import WalletConfigurationError
 
 
 ERRORS = {
+    'no_registered_prize_pool_uids': ('no_registered_prize_pool_uids', 'No registered UID belongs to the configured prize-pool coldkey at the finalized snapshot. No substitute recipient was used.'),
+    'prize_pool_wrong_snapshot_or_seed': ('invalid_prize_pool_selection', 'The prize-pool selection is not bound to the finalized report and epoch. No weights were submitted.'),
+    'prize_pool_owner_mapping_inconsistent': ('invalid_prize_pool_ownership', 'Prize-pool hotkey ownership and the finalized metagraph disagree. No alternate UID was selected.'),
     'contest_pool_acceptance_required': ('contest_pool_acceptance_required', 'Review the published contest-pool hotkey and coldkey, then use accept-contest-pool --yes with your existing state directory. No signing permission was changed.'),
     'contest_pool_consent_mismatch': ('contest_pool_consent_mismatch', 'The signed contest recipient differs from your accepted identity. Preserve state and verify the published addresses.'),
     'contest_pool_identity_changed': ('contest_pool_identity_changed', 'The contest recipient UID or ownership changed. Submission is stopped; preserve state and check the finalized registration.'),

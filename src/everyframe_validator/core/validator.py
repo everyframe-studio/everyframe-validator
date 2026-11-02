@@ -133,6 +133,8 @@ def epoch_weight_plan(artifact, bindings, neurons, validator_hotkey, params, own
         uid = by_hotkey[hotkey]['uid']
         value = row['earningsMicrousd'] + row['surchargeMicrousd']
         if value:
+            if contest_pool is not None and by_hotkey[hotkey]['coldkey'] == contest_pool['coldkey']:
+                raise ValueError('contest_pool_cannot_earn_serving_weights')
             if contest_pool is not None and uid == burn['uid']:
                 raise ValueError('contest_pool_cannot_earn_serving_weights')
             values[uid] = value

@@ -20,7 +20,7 @@ import urllib.request
 REPO = 'everyframe-studio/everyframe-validator'
 IMAGE = 'ghcr.io/' + REPO
 API = 'https://api.github.com/repos/' + REPO + '/releases/latest'
-POLICIES = {'epoch-start-accounting-v1', 'epoch-start-accounting-burn-v2', 'epoch-start-contest-pool-v3'}
+POLICIES = {'epoch-start-accounting-v1', 'epoch-start-accounting-burn-v2', 'epoch-start-contest-pool-v3', 'epoch-start-prize-pool-v4'}
 
 
 def version(value):
@@ -120,7 +120,8 @@ def latest(fetch=request):
             or manifest['schema'] != 1 or manifest['stateFormat'] != 1
             or manifest['version'] != tag.removeprefix('v')
             or not isinstance(manifest['assignmentPolicies'], list)
-            or set(manifest['assignmentPolicies']) != POLICIES):
+            or not {'epoch-start-accounting-v1', 'epoch-start-accounting-burn-v2'} <= set(manifest['assignmentPolicies'])
+            or not set(manifest['assignmentPolicies']) <= POLICIES):
         raise ValueError('unsupported_update_manifest')
     version(manifest['minimumVersion'])
     if version(manifest['minimumVersion']) > version(manifest['version']):

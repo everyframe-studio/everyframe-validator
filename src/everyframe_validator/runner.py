@@ -4,6 +4,7 @@ import asyncio
 from contextlib import redirect_stdout
 import io
 import json
+import signal
 import time
 from types import SimpleNamespace
 
@@ -210,16 +211,37 @@ async def _tick(root, submit=False, only_reconcile=False):
 
 async def run(root, submit=False, once=False, interval=60, weight_interval_blocks=0, missing_accounting='wait',
               weight_cadence='block', accounting_grace_blocks=25):
-    while True:
+    # Docker sends SIGTERM to PID 1. Finish the current bounded accounting /
+    # submission iteration, then exit without starting another or sleeping.
+    # Cancelling a broadcast mid-flight would instead require reconciliation.
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    previous = signal.getsignal(signal.SIGTERM)
+    installed = False
+    try:
         try:
-            result = await asyncio.wait_for(tick(root, submit=submit, weight_interval_blocks=weight_interval_blocks,
-                                                missing_accounting=missing_accounting, weight_cadence=weight_cadence,
-                                                accounting_grace_blocks=accounting_grace_blocks), timeout=300)
-            failed = result["state"] == "blocked"
-        except Exception as exc:
-            failed = True
-            result = diagnostic(exc)
-        print(json.dumps(result), flush=True)
-        if once:
-            return 2 if failed else 0
-        await asyncio.sleep(interval)
+            loop.add_signal_handler(signal.SIGTERM, stop.set)
+            installed = True
+        except (NotImplementedError, RuntimeError, ValueError):
+            pass
+        while not stop.is_set():
+            try:
+                result = await asyncio.wait_for(tick(root, submit=submit, weight_interval_blocks=weight_interval_blocks,
+                                                    missing_accounting=missing_accounting, weight_cadence=weight_cadence,
+                                                    accounting_grace_blocks=accounting_grace_blocks), timeout=300)
+                failed = result["state"] == "blocked"
+            except Exception as exc:
+                failed = True
+                result = diagnostic(exc)
+            print(json.dumps(result), flush=True)
+            if once:
+                return 2 if failed else 0
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=interval)
+            except asyncio.TimeoutError:
+                pass
+        return 0
+    finally:
+        if installed:
+            loop.remove_signal_handler(signal.SIGTERM)
+            signal.signal(signal.SIGTERM, previous)

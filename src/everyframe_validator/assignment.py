@@ -16,6 +16,7 @@ from .feed import fetch, strict_json, public_key, exact_keys, verify, validate_u
 from .state import atomic_json, read_private
 from .core import burn_selection as burn
 from .core import contest_pool as contest
+from .core import prize_pool as prize
 
 SCHEMA = 'everyframe.validator.assignment.v1'
 POLICY = 'epoch-start-accounting-v1'
@@ -23,6 +24,8 @@ ROTATING_SCHEMA = 'everyframe.validator.assignment.v2'
 ROTATING_POLICY = 'epoch-start-accounting-burn-v2'
 CONTEST_SCHEMA = 'everyframe.validator.assignment.v3'
 CONTEST_POLICY = 'epoch-start-contest-pool-v3'
+PRIZE_SCHEMA = 'everyframe.validator.assignment.v4'
+PRIZE_POLICY = 'epoch-start-prize-pool-v4'
 KEYS = {'schema', 'policy', 'network', 'netuid', 'genesis', 'chainEpoch', 'chainEpochStart',
         'chainEpochStartHash', 'previousChainEpochStart', 'cutoffBlock', 'accountingEpoch',
         'blocksPerEpoch', 'mode', 'payloadHash'}
@@ -72,6 +75,8 @@ def project(domain, view, s, payload=None, *, burn_selection=None, contest_pool=
     if contest_pool is not None:
         contest.validate(contest_pool, p)
         p.update(schema=CONTEST_SCHEMA, policy=CONTEST_POLICY, contestPool=contest_pool)
+        if contest_pool['policy'] == prize.POLICY:
+            p.update(schema=PRIZE_SCHEMA, policy=PRIZE_POLICY)
         if mode == 'scheduled_reuse_burn':
             p['mode'] = 'scheduled_reuse_pool'
     return p
@@ -82,7 +87,8 @@ def authenticate(raw, key, domain, view, s):
     exact_keys(envelope, {'payload', 'signature'})
     p = envelope['payload']
     rotating = isinstance(p, dict) and p.get('schema') == ROTATING_SCHEMA
-    funding = isinstance(p, dict) and p.get('schema') == CONTEST_SCHEMA
+    rotating_pool = isinstance(p, dict) and p.get('schema') == PRIZE_SCHEMA
+    funding = isinstance(p, dict) and p.get('schema') in (CONTEST_SCHEMA, PRIZE_SCHEMA)
     exact_keys(p, KEYS | ({'burnSelection'} if rotating else {'contestPool'} if funding else set()))
     public_key(key).verify(base64.b64decode(envelope['signature'], validate=True),
                            canonical(p).encode())
@@ -90,8 +96,8 @@ def authenticate(raw, key, domain, view, s):
     epoch, mode = target(view, s)
     if funding and mode == 'scheduled_reuse_burn':
         mode = 'scheduled_reuse_pool'
-    expected = {'schema': CONTEST_SCHEMA if funding else ROTATING_SCHEMA if rotating else SCHEMA,
-                'policy': CONTEST_POLICY if funding else ROTATING_POLICY if rotating else POLICY, **domain, 'chainEpoch': s['SubnetEpochIndex'],
+    expected = {'schema': PRIZE_SCHEMA if rotating_pool else CONTEST_SCHEMA if funding else ROTATING_SCHEMA if rotating else SCHEMA,
+                'policy': PRIZE_POLICY if rotating_pool else CONTEST_POLICY if funding else ROTATING_POLICY if rotating else POLICY, **domain, 'chainEpoch': s['SubnetEpochIndex'],
                 'chainEpochStart': s['LastEpochBlock'], 'chainEpochStartHash': s['chainEpochStartHash'],
                 'previousChainEpochStart': s['previousChainEpochStart'], 'cutoffBlock': s['LastEpochBlock'],
                 'accountingEpoch': epoch, 'blocksPerEpoch': view['params']['tempo'] + 1, 'mode': mode}
@@ -104,6 +110,8 @@ def authenticate(raw, key, domain, view, s):
         burn.validate(p['burnSelection'], p)
     if funding:
         contest.validate(p['contestPool'], p)
+        if p['contestPool']['policy'] != (prize.POLICY if rotating_pool else contest.POLICY):
+            raise ValueError('invalid_contest_pool_policy')
     return p
 
 
@@ -184,6 +192,7 @@ async def verify_report(client, raw, key, domain, view, assignment, root=None, *
 async def load(client, root, config, domain, view, s):
     raw = await asyncio.to_thread(fetch, feed_url(config['feed']), s['SubnetEpochIndex'])
     assignment = authenticate(raw, config['publicKey'], domain, view, s)
+    await prize.verify(client, assignment, root, persist=True)
     await contest.verify(client, assignment, root, persist=True)
     await verify_burn(client, assignment, root, persist=True)
     accepted = root / 'assignments'

@@ -15,7 +15,7 @@ from .publish import load_signing_key, sign
 from .scheduled import schedule
 from .state import atomic_json, read_private
 from .core import burn_selection
-from .core import contest_pool
+from .core import contest_pool, prize_pool
 
 
 def contest_activation(args, output):
@@ -24,21 +24,25 @@ def contest_activation(args, output):
     requested = None
     if any(v is not None for v in values):
         epoch, hotkey, coldkey = values
-        if any(v is None for v in values) or type(epoch) is not int or epoch < 0:
+        if coldkey is None or type(epoch) is not int or epoch < 0:
             raise ValueError('contest_pool_requires_future_epoch_and_both_addresses')
-        contest_pool.identity({'hotkey': hotkey, 'coldkey': coldkey})
-        requested = {'policy': assignment.CONTEST_POLICY, 'fromChainEpoch': epoch,
-                     'hotkey': hotkey, 'coldkey': coldkey}
+        if hotkey:
+            contest_pool.identity({'hotkey': hotkey, 'coldkey': coldkey})
+            requested = {'policy':assignment.CONTEST_POLICY, 'fromChainEpoch':epoch, 'hotkey':hotkey, 'coldkey':coldkey}
+        else:
+            prize_pool.identity({'coldkey':coldkey})
+            requested = {'policy':assignment.PRIZE_POLICY, 'fromChainEpoch':epoch, 'coldkey':coldkey}
     path = output / 'contest-pool-activation.json'
     try:
         pinned = read_private(path)
     except FileNotFoundError:
         return requested, False
-    if (not isinstance(pinned, dict) or set(pinned) != {'policy', 'fromChainEpoch', 'hotkey', 'coldkey'}
-            or pinned['policy'] != assignment.CONTEST_POLICY or type(pinned['fromChainEpoch']) is not int
+    rotating = isinstance(pinned, dict) and pinned.get('policy') == assignment.PRIZE_POLICY
+    if (not isinstance(pinned, dict) or set(pinned) != ({'policy', 'fromChainEpoch', 'coldkey'} if rotating else {'policy', 'fromChainEpoch', 'hotkey', 'coldkey'})
+            or pinned['policy'] not in (assignment.CONTEST_POLICY, assignment.PRIZE_POLICY) or type(pinned['fromChainEpoch']) is not int
             or pinned['fromChainEpoch'] < 0):
         raise ValueError('invalid_contest_pool_activation')
-    contest_pool.identity({k: pinned[k] for k in ('hotkey', 'coldkey')})
+    (prize_pool.identity({'coldkey':pinned['coldkey']}) if rotating else contest_pool.identity({k:pinned[k] for k in ('hotkey','coldkey')}))
     if requested is not None and requested != pinned:
         raise ValueError('contest_pool_activation_conflict')
     return pinned, True
@@ -117,10 +121,10 @@ async def _publish(args, output):
             await assignment.verify_emissions(client, a, getattr(args, 'verification_root', None), persist=True)
         p = assignment.project(domain, view, s, payload)
         if contest and not contest_pinned:
-            await contest_pool.from_chain(client, p, {k: contest[k] for k in ('hotkey', 'coldkey')})
+            await contest_pool.from_chain(client, p, {k: contest[k] for k in ('hotkey', 'coldkey') if k in contest})
         activation = requested
         if contest and s['SubnetEpochIndex'] >= contest['fromChainEpoch']:
-            recipient = {k: contest[k] for k in ('hotkey', 'coldkey')}
+            recipient = {k: contest[k] for k in ('hotkey', 'coldkey') if k in contest}
             selection = await contest_pool.from_chain(client, p, recipient)
             p = assignment.project(domain, view, s, payload, contest_pool=selection)
         elif activation is not None:

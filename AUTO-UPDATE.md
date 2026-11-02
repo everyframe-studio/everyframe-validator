@@ -86,3 +86,9 @@ delete validator state or clear the pending marker until the actual deployment h
 been reconciled. Once the intended image is healthy, correct `current.json` and
 archive `pending.json` as an operator-reviewed recovery. Installing new code does
 not renew expired signing authorization or opt into a newly announced pool.
+
+The early v0.7.0 bootstrap recognizes v1–v3 allocation policies only. If you
+installed that bootstrap, replace it once with the checksum-verified v0.8.0
+`auto-update.py` from the official release before adopting v4. This is a bootstrap
+compatibility gate; never clear validator state to bypass it. The replacement
+must be installed while the update timer is disabled and no update is running.

@@ -134,6 +134,8 @@ async def doctor(path, offline=False, check_emissions=False):
                     raw = await asyncio.to_thread(fetch,assignment.feed_url(c['feed']),s['SubnetEpochIndex'])
                     selected = assignment.authenticate(raw,c['publicKey'],domain,view,s)
                     from .core import contest_pool
+                    from .core import prize_pool
+                    await prize_pool.verify(client,selected,root)
                     await contest_pool.verify(client,selected,root)
                     await assignment.verify_burn(client,selected,root)
                     if 'contestPool' in selected:
