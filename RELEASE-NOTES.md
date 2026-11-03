@@ -1,3 +1,10 @@
+# EveryFrame Validator 0.8.4
+
+- Bundle the official mainnet treasury wallet address so validators only need to update and restart as usual.
+- Remove the separate treasury acceptance step for the bundled Finney/SN117 recipient.
+- Preserve existing profiles, journals, signing authorization, consent overrides and signed assignment formats.
+- Keep on-chain recipient verification and coordinated future-epoch funding activation.
+
 # EveryFrame Validator 0.8.3
 
 - Restore Treasury wallet as the preferred name in operator commands, help and documentation.

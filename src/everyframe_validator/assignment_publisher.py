@@ -16,6 +16,7 @@ from .scheduled import schedule
 from .state import atomic_json, read_private
 from .core import burn_selection
 from .core import contest_pool, prize_pool
+from .core.treasury import TREASURY_WALLET_COLDKEY
 
 
 def add_treasury_arguments(parser):
@@ -24,7 +25,7 @@ def add_treasury_arguments(parser):
                         dest='contest_pool_from_chain_epoch', type=int,
                         help='Future chain epoch for coordinated treasury wallet activation')
     parser.add_argument('--treasury-wallet-coldkey', '--contest-pool-coldkey',
-                        dest='contest_pool_coldkey', help='Non-owner treasury wallet coldkey')
+                        dest='contest_pool_coldkey', help='Optional treasury coldkey override; official mainnet address is bundled')
     parser.add_argument('--treasury-wallet-hotkey', '--contest-pool-hotkey',
                         dest='contest_pool_hotkey', help='Legacy fixed-recipient mode only')
 
@@ -35,6 +36,8 @@ def contest_activation(args, output):
     requested = None
     if any(v is not None for v in values):
         epoch, hotkey, coldkey = values
+        if coldkey is None and hotkey is None and epoch is not None and getattr(args, 'network', None) == 'mainnet':
+            coldkey = TREASURY_WALLET_COLDKEY
         if coldkey is None or type(epoch) is not int or epoch < 0:
             raise ValueError('contest_pool_requires_future_epoch_and_coldkey')
         if hotkey:

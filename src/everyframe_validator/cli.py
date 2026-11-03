@@ -42,7 +42,7 @@ def parser():
     for item in commands.values():
         item.add_argument("--state-dir", required=True, help="Dedicated private directory for this network and hotkey")
     pool = sub.add_parser('accept-treasury-wallet', aliases=['accept-contest-pool'],
-                          help='Accept the published non-owner treasury wallet locally; does not authorize signing')
+                          help='Optional treasury identity override; the official mainnet treasury is already bundled')
     pool.add_argument('--state-dir', required=True)
     pool.add_argument('--hotkey', help='Legacy fixed-recipient mode; omit to rotate across the coldkey\'s registered UIDs')
     pool.add_argument('--coldkey', required=True)

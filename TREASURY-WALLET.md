@@ -1,8 +1,8 @@
 # Treasury wallet
 
-Validator v0.8.3 rotates the unused miner allocation across the registered UIDs
+Validator v0.8.4 rotates the unused miner allocation across the registered UIDs
 of **one non-owner treasury wallet coldkey**. Installing this code does not activate
-funding. The treasury wallet coldkey and future activation epoch must be configured first.
+funding. The treasury coldkey is bundled; the publisher sets a future activation epoch.
 
 ## How a UID is selected
 
@@ -46,27 +46,37 @@ Assigned weight is not proof of received alpha or a guaranteed USD amount.
 Awards require a separate approval and payment process; validators do not spend
 treasury funds automatically.
 
-## Activation
+## Updating validators
 
-1. Register treasury wallet hotkeys under the chosen **non-owner coldkey** and publish
-   that coldkey address. No fixed hotkey or manual UID list is required.
-2. Use v0.8.1 or later for the renamed commands below. Existing v0.8.0
-   participants remain protocol-compatible and can use the legacy command alias.
-   Each operator explicitly accepts the coldkey:
+The official mainnet SN117 release includes the treasury coldkey:
 
-   ```bash
-   everyframe-validator accept-treasury-wallet --state-dir ./state/mainnet117 \
-     --coldkey TREASURY_WALLET_COLDKEY --yes
-   ```
+```text
+5CcGQCrAR5ktztYHRcj5izk5jmxSVdxbTdTxAva428iC83Qp
+```
 
-   With Docker use the same command through `docker compose exec validator`,
-   using `--state-dir /state`. This does not grant or renew signing consent.
-3. Confirm participant readiness, then configure the publisher:
+**Update and restart the validator as usual with its existing state and wallet.**
+No treasury acceptance command, new profile, or additional configuration is
+required. The address is bundled in `core/treasury.py`; no private key is included.
+Existing matching consent files remain valid and are not rewritten.
 
-   ```text
-   --treasury-wallet-from-chain-epoch FUTURE_CHAIN_EPOCH
-   --treasury-wallet-coldkey TREASURY_WALLET_COLDKEY
-   ```
+The default applies only to the pinned Finney/SN117 chain. Validators still verify
+the signed assignment, registered coldkey ownership, candidate set and selected
+UID. A different treasury address is not accepted through this default. Existing
+explicit operator overrides remain checked; testnet/custom recipients can still
+use `accept-treasury-wallet` or its legacy alias when required.
+
+## Publisher activation
+
+Installing the release does not activate funding. After participating validators
+are updated, the publisher selects a future chain epoch:
+
+```text
+--treasury-wallet-from-chain-epoch FUTURE_CHAIN_EPOCH
+```
+
+The mainnet publisher uses the same bundled coldkey unless an explicit custom
+recipient is configured. No treasury coldkey argument is needed for the official
+deployment.
 
 The first activation must be in the future; the candidate set is verified before
 pinning it. `contest-pool-activation.json` is durable and written before public
@@ -82,7 +92,7 @@ for an already configured v3 pool. New deployments use coldkey-only v4.
 
 Treasury wallet is the user-facing name. Existing `prize_pool` / `contestPool`
 protocol identifiers, signed assignment policies, consent files and activation
-markers keep their original names. Existing consent remains valid.
+markers keep their original names. Existing consent remains valid; the bundled mainnet treasury also works without a consent file.
 `accept-contest-pool` and `--contest-pool-*` remain supported aliases for older
 operator scripts. This terminology update does not change rewards or activate
 treasury funding.
