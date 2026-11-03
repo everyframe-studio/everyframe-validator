@@ -18,6 +18,17 @@ from .core import burn_selection
 from .core import contest_pool, prize_pool
 
 
+def add_treasury_arguments(parser):
+    """Operator naming aliases retain the existing protocol/config destinations."""
+    parser.add_argument('--treasury-wallet-from-chain-epoch', '--contest-pool-from-chain-epoch',
+                        dest='contest_pool_from_chain_epoch', type=int,
+                        help='Future chain epoch for coordinated treasury wallet activation')
+    parser.add_argument('--treasury-wallet-coldkey', '--contest-pool-coldkey',
+                        dest='contest_pool_coldkey', help='Non-owner treasury wallet coldkey')
+    parser.add_argument('--treasury-wallet-hotkey', '--contest-pool-hotkey',
+                        dest='contest_pool_hotkey', help='Legacy fixed-recipient mode only')
+
+
 def contest_activation(args, output):
     names = ('contest_pool_from_chain_epoch', 'contest_pool_hotkey', 'contest_pool_coldkey')
     values = [getattr(args, k, None) for k in names]
@@ -165,9 +176,7 @@ def main():
     for name in ('epochs-dir', 'output', 'signing-key'):
         p.add_argument('--'+name, required=True)
     p.add_argument('--expected-public-key')
-    p.add_argument('--contest-pool-from-chain-epoch', type=int)
-    p.add_argument('--contest-pool-hotkey')
-    p.add_argument('--contest-pool-coldkey')
+    add_treasury_arguments(p)
     p.add_argument('--burn-rotation-from-chain-epoch', type=int,
                    help='Opt in to v2 deterministic owner-burn assignments from a future chain epoch, after all validators upgrade')
     a = p.parse_args()

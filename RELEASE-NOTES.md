@@ -1,3 +1,9 @@
+# EveryFrame Validator 0.8.1
+
+- Use Treasury wallet in operator documentation, CLI help and diagnostics.
+- Add `accept-treasury-wallet` and `--treasury-wallet-*` commands/options while retaining existing aliases.
+- Preserve signed assignment formats, consent, state, reward calculations and activation status.
+
 # EveryFrame Validator 0.8.0
 
 - Select a prize-pool UID from all registered hotkeys under one accepted non-owner coldkey, using the signed report and finalized epoch snapshot.
