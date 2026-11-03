@@ -158,3 +158,12 @@ selection in `contestPool`. It commits to the sorted UIDs/hotkeys owned by the
 accepted pool coldkey at the finalized epoch-start block, candidate hash/count,
 report-derived seed and selected UID/hotkey. See [TREASURY-WALLET.md](TREASURY-WALLET.md).
 Readers retain historical v3 support and reject a policy downgrade after v4.
+
+## Release-pinned mainnet treasury (v0.8.4)
+
+The Finney/SN117 treasury coldkey is bundled in `core/treasury.py`. A missing
+local treasury consent file does not block the bundled recipient; an existing
+explicit consent file or established policy pin must still match. Other chain
+domains and non-default recipients retain explicit acceptance. This does not
+change signed v4 fields, deterministic selection, chain verification, transaction
+authorization, or the publisher's separate future-epoch activation gate.

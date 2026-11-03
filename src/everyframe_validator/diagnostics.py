@@ -14,7 +14,7 @@ ERRORS = {
     'no_registered_prize_pool_uids': ('no_registered_prize_pool_uids', 'No registered UID belongs to the configured treasury wallet coldkey at the finalized snapshot. No substitute recipient was used.'),
     'prize_pool_wrong_snapshot_or_seed': ('invalid_prize_pool_selection', 'The treasury wallet selection is not bound to the finalized report and epoch. No weights were submitted.'),
     'prize_pool_owner_mapping_inconsistent': ('invalid_prize_pool_ownership', 'Treasury wallet hotkey ownership and the finalized metagraph disagree. No alternate UID was selected.'),
-    'contest_pool_acceptance_required': ('contest_pool_acceptance_required', 'Review the published treasury wallet coldkey, then use accept-treasury-wallet --coldkey ADDRESS --yes with your existing state directory. No signing permission was changed.'),
+    'contest_pool_acceptance_required': ('contest_pool_acceptance_required', 'This assignment uses a custom treasury or chain domain outside the bundled mainnet default. Verify the recipient before using an explicit override. Ordinary mainnet updates need no treasury acceptance command.'),
     'contest_pool_consent_mismatch': ('contest_pool_consent_mismatch', 'The signed treasury wallet recipient differs from your accepted identity. Preserve state and verify the published addresses.'),
     'contest_pool_identity_changed': ('contest_pool_identity_changed', 'The treasury wallet recipient UID or ownership changed. Submission is stopped; preserve state and check the finalized registration.'),
     'contest_pool_policy_downgrade': ('contest_pool_policy_downgrade', 'An older allocation policy appeared after treasury wallet funding was activated. Preserve the journal and check the publisher.'),

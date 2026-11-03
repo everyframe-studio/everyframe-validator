@@ -5,6 +5,7 @@ import re
 from .burn_selection import owner_candidates, selection_index
 from .reward_policy import digest
 from ..state import atomic_json, read_private
+from .treasury import is_release_treasury
 
 POLICY = 'report-prize-pool-v1'
 KEYS = {'policy', 'snapshotBlock', 'snapshotBlockHash', 'ownerColdkey', 'coldkey',
@@ -123,10 +124,16 @@ async def verify(client, assigned, root=None, *, persist=False):
     if pinned and pinned['coldkey'] != value['coldkey']:
         raise ValueError('contest_pool_recipient_changed')
     if root:
-        try: consent = read_private(root / 'prize-pool-consent.json')
-        except FileNotFoundError: raise ValueError('contest_pool_acceptance_required') from None
-        if consent != {'policy': POLICY, **recipient}:
-            raise ValueError('contest_pool_consent_mismatch')
+        try:
+            consent = read_private(root / 'prize-pool-consent.json')
+        except FileNotFoundError:
+            if not is_release_treasury(assigned, recipient['coldkey']):
+                raise ValueError('contest_pool_acceptance_required') from None
+        else:
+            # Keep existing operator overrides and consent files authoritative.
+            # Only an absent file uses the release-pinned mainnet default.
+            if consent != {'policy': POLICY, **recipient}:
+                raise ValueError('contest_pool_consent_mismatch')
     if await from_chain(client, assigned, recipient) != value:
         raise ValueError('contest_pool_does_not_match_chain')
     if path and persist:

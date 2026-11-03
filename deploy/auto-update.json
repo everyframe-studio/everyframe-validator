@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": "0.8.3",
+  "version": "0.8.4",
   "minimumVersion": "0.6.0",
   "stateFormat": 1,
   "assignmentPolicies": ["epoch-start-accounting-v1", "epoch-start-accounting-burn-v2", "epoch-start-contest-pool-v3", "epoch-start-prize-pool-v4"]

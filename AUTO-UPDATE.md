@@ -3,8 +3,8 @@
 The host-side updater supports **Linux Docker Compose deployments** of the
 official validator image. Python/venv and PM2 installations continue using manual
 upgrades; the updater does not rewrite those services. Auto-update is off until the
-operator installs it and opts in. It never enables signing or accepts a treasury
-wallet identity.
+operator installs it and opts in. It never grants or renews signing authorization. The official mainnet treasury
+address is bundled with the validator; no separate acceptance command is needed.
 
 Use the `auto-update.py` asset from the official GitHub Release. Download its
 `SHA256SUMS`, verify the checksum, and place the reviewed script on the host.
@@ -85,7 +85,8 @@ uncertain transaction and select a compatible version before restarting. Do not
 delete validator state or clear the pending marker until the actual deployment has
 been reconciled. Once the intended image is healthy, correct `current.json` and
 archive `pending.json` as an operator-reviewed recovery. Installing new code does
-not renew expired signing authorization or opt into a newly announced pool.
+not renew expired signing authorization. The mainnet treasury comes from the
+installed release and remains subject to on-chain identity verification.
 
 The early v0.7.0 bootstrap recognizes v1–v3 allocation policies only. If you
 installed that bootstrap, replace it once with the checksum-verified v0.8.0
