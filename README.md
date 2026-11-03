@@ -7,9 +7,9 @@ provider API keys, GPU, Phala account, or miner TEE is required.
 
 ## Release status
 
-Version **0.8.2** uses **Contest pool** in operator commands, help and documentation. Use `accept-contest-pool`; v0.8.1 treasury-wallet aliases, existing consent and signed assignments remain compatible.
+Version **0.8.3** uses **Treasury wallet** in operator commands, help and documentation. Use `accept-treasury-wallet`; existing consent, command aliases and signed assignments remain compatible.
 
-Version **0.8.0** selects a contest pool UID from all registered hotkeys under one explicitly accepted non-owner coldkey. Selection is deterministic from the signed report and finalized snapshot. It also includes the opt-in Docker Compose updater. Contest pool funding stays inactive until a verified non-owner recipient and future activation epoch are configured. See [CONTEST-POOL.md](CONTEST-POOL.md) and [AUTO-UPDATE.md](AUTO-UPDATE.md). The updater preserves local signing consent and does not accept a new contest pool address automatically.
+Version **0.8.0** selects a treasury wallet UID from all registered hotkeys under one explicitly accepted non-owner coldkey. Selection is deterministic from the signed report and finalized snapshot. It also includes the opt-in Docker Compose updater. Treasury wallet funding stays inactive until a verified non-owner recipient and future activation epoch are configured. See [TREASURY-WALLET.md](TREASURY-WALLET.md) and [AUTO-UPDATE.md](AUTO-UPDATE.md). The updater preserves local signing consent and does not accept a new treasury wallet address automatically.
 
 Version **0.6.0** adds deterministic owner burn selection tied to each signed
 accounting assignment. Every validator independently verifies the eligible owner

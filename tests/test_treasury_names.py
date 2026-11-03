@@ -27,7 +27,7 @@ def test_treasury_and_legacy_acceptance_preserve_consent_and_journal(profile, mo
         result = json.loads(capsys.readouterr().out)
         assert result['policy'] == prize_pool.POLICY
         assert result['submittedTransaction'] is False
-        assert result['message'].startswith('Contest pool accepted.')
+        assert result['message'].startswith('Treasury wallet accepted.')
         saved = (root/'prize-pool-consent.json').read_bytes()
         if consent is not None:
             assert saved == consent
@@ -36,8 +36,8 @@ def test_treasury_and_legacy_acceptance_preserve_consent_and_journal(profile, mo
     assert not (root/'authorization.json').exists()
 
 
-def test_help_prefers_contest_pool_name_and_retains_treasury_alias():
+def test_help_prefers_treasury_name_and_retains_legacy_command():
     text = cli.parser().format_help()
     assert 'accept-treasury-wallet' in text and 'accept-contest-pool' in text
 
-    assert text.index('accept-contest-pool') < text.index('accept-treasury-wallet')
+    assert text.index('accept-treasury-wallet') < text.index('accept-contest-pool')
