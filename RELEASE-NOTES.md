@@ -1,3 +1,9 @@
+# EveryFrame Validator 0.8.2
+
+- Restore Contest pool as the preferred name in operator commands, help and documentation.
+- Prefer `accept-contest-pool` and `--contest-pool-*`; retain the v0.8.1 treasury-wallet aliases.
+- Keep saved consent, signed protocols, reward calculations and activation unchanged.
+
 # EveryFrame Validator 0.8.1
 
 - Use Treasury wallet in operator documentation, CLI help and diagnostics.
