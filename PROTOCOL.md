@@ -149,12 +149,12 @@ partial outcome reopens only its unpaid remainder; unreconciled claims never ret
 
 ## Contest allocation (v0.7.0)
 
-Assignment v3 (`epoch-start-contest-pool-v3`) explicitly separates unused allocation sent to a registered non-owner treasury wallet recipient. Reader consent, finalized identity checks, durable activation and no-downgrade requirements are specified in [TREASURY-WALLET.md](TREASURY-WALLET.md). This is not burned supply or proof of miner work. Legacy assignments and pending commitments keep their original interpretation.
+Assignment v3 (`epoch-start-contest-pool-v3`) explicitly separates unused allocation sent to a registered non-owner contest pool recipient. Reader consent, finalized identity checks, durable activation and no-downgrade requirements are specified in [CONTEST-POOL.md](CONTEST-POOL.md). This is not burned supply or proof of miner work. Legacy assignments and pending commitments keep their original interpretation.
 
-## Treasury wallet rotation (v0.8.0)
+## Contest pool rotation (v0.8.0)
 
 Assignment v4 (`epoch-start-prize-pool-v4`) contains a `report-prize-pool-v1`
 selection in `contestPool`. It commits to the sorted UIDs/hotkeys owned by the
 accepted pool coldkey at the finalized epoch-start block, candidate hash/count,
-report-derived seed and selected UID/hotkey. See [TREASURY-WALLET.md](TREASURY-WALLET.md).
+report-derived seed and selected UID/hotkey. See [CONTEST-POOL.md](CONTEST-POOL.md).
 Readers retain historical v3 support and reject a policy downgrade after v4.

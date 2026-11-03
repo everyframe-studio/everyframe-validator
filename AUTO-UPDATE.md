@@ -3,8 +3,8 @@
 The host-side updater supports **Linux Docker Compose deployments** of the
 official validator image. Python/venv and PM2 installations continue using manual
 upgrades; the updater does not rewrite those services. Auto-update is off until the
-operator installs it and opts in. It never enables signing or accepts a treasury
-wallet identity.
+operator installs it and opts in. It never enables signing or accepts a contest
+pool identity.
 
 Use the `auto-update.py` asset from the official GitHub Release. Download its
 `SHA256SUMS`, verify the checksum, and place the reviewed script on the host.
