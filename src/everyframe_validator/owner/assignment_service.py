@@ -16,7 +16,7 @@ import time
 from types import SimpleNamespace
 
 from .. import assignment
-from ..assignment_publisher import publish as publish_assignment
+from ..assignment_publisher import publish as publish_assignment, add_treasury_arguments
 from ..core.chain_scope import scope, read_network, rpc_options, check_database
 from ..core.reward_policy import digest
 from ..feed import PROFILES, verify, strict_json, FeedUnavailable
@@ -114,9 +114,7 @@ def main():
     for name in ('epochs','bindings','state-dir','public-epochs','public-assignments'):
         p.add_argument('--'+name,required=True)
     p.add_argument('--expected-public-key')
-    p.add_argument('--contest-pool-from-chain-epoch', type=int)
-    p.add_argument('--contest-pool-hotkey')
-    p.add_argument('--contest-pool-coldkey')
+    add_treasury_arguments(p)
     p.add_argument('--burn-rotation-from-chain-epoch', type=int,
                    help='Future chain epoch for deterministic owner-burn selection; leave unset until all readers upgrade')
     args = p.parse_args()

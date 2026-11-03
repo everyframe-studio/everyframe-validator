@@ -2,6 +2,6 @@ include README.md PROTOCOL.md CORE-PROVENANCE.md Dockerfile compose.yaml
 include LICENSE LICENSE-NOTICE.md SECURITY.md CONTRIBUTING.md RELEASING.md
 include OWNER-ACCOUNTING.md RELEASE-NOTES.md SPARSE-ACCOUNTING-RECOVERY.md
 include BURN-ROTATION.md
-include CONTEST-POOL.md AUTO-UPDATE.md
+include CONTEST-POOL.md TREASURY-WALLET.md AUTO-UPDATE.md
 recursive-include deploy *.service *.timer *.caddy *.yaml *.py *.md *.json
 recursive-include tests *.py
