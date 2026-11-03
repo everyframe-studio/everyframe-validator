@@ -20,12 +20,12 @@ from .core import contest_pool, prize_pool
 
 def add_treasury_arguments(parser):
     """Operator naming aliases retain the existing protocol/config destinations."""
-    parser.add_argument('--contest-pool-from-chain-epoch', '--treasury-wallet-from-chain-epoch',
+    parser.add_argument('--treasury-wallet-from-chain-epoch', '--contest-pool-from-chain-epoch',
                         dest='contest_pool_from_chain_epoch', type=int,
-                        help='Future chain epoch for coordinated contest pool activation')
-    parser.add_argument('--contest-pool-coldkey', '--treasury-wallet-coldkey',
-                        dest='contest_pool_coldkey', help='Non-owner contest pool coldkey')
-    parser.add_argument('--contest-pool-hotkey', '--treasury-wallet-hotkey',
+                        help='Future chain epoch for coordinated treasury wallet activation')
+    parser.add_argument('--treasury-wallet-coldkey', '--contest-pool-coldkey',
+                        dest='contest_pool_coldkey', help='Non-owner treasury wallet coldkey')
+    parser.add_argument('--treasury-wallet-hotkey', '--contest-pool-hotkey',
                         dest='contest_pool_hotkey', help='Legacy fixed-recipient mode only')
 
 
