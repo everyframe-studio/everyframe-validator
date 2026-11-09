@@ -7,6 +7,16 @@ from urllib.parse import urlsplit
 DEFAULT_MAINNET_RPC = 'wss://archive.chain.opentensor.ai:443'
 
 
+def systemd_credential(path, info):
+    """systemd mounts credentials read-only, sometimes root-owned mode 0440."""
+    directory = os.environ.get('CREDENTIALS_DIRECTORY', '')
+    return (directory.startswith('/run/credentials/')
+            and os.path.realpath(directory) == directory
+            and os.path.dirname(os.path.abspath(path)) == directory
+            and info.st_uid in (0, os.geteuid())
+            and stat.S_IMODE(info.st_mode) in (0o400, 0o440))
+
+
 def validate_endpoint(value):
     try:
         url = urlsplit(value)
@@ -38,7 +48,8 @@ def api_key():
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(fd) as stream:
             info = os.fstat(stream.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            owner_only = info.st_uid == os.geteuid() and not info.st_mode & 0o077
+            if not stat.S_ISREG(info.st_mode) or not (owner_only or systemd_credential(path, info)):
                 raise ValueError('private_file_permissions')
             key = stream.read(4097).strip()
     if (path and not key) or len(key) > 4096 or any(ord(c) < 33 or ord(c) == 127 for c in key):

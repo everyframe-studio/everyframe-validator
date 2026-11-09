@@ -16,7 +16,7 @@ from . import cadence, assignment
 from .core.chain_scope import scope, read_network, rpc_options, check_authorization
 from .core.reward_policy import digest, seal_epoch
 from .core.validator import epoch_weight_plan
-from .core.submission import prepare, recover
+from .core.submission import prepare, recover, definitely_not_included, submit_and_confirm
 from .feed import fetch, verify, FeedUnavailable
 from .state import atomic_json, journal_rows, read_private
 
@@ -84,7 +84,7 @@ def gate(view, s, rows):
     first, now, tempo = s['LastEpochBlock'], view['block'], view['params']['tempo']
     if s['PendingEpochAt']:
         return 'pending_epoch_transition'
-    if any(r['state'] != 'not_submitted' and
+    if any(not definitely_not_included(r) and
            (included(r) >= first or r['record'].get('chainEpoch') == s['SubnetEpochIndex'])
            for r in rows):
         return 'chain_epoch_already_committed'
@@ -201,7 +201,7 @@ def reserve(db, run_id, record, consent):
                for state, r, _ in rows) >= consent['maxSubmissions']:
             raise ValueError('mainnet authorization submission budget exhausted')
         for state, prior, result in rows:
-            if state == 'not_submitted':
+            if definitely_not_included({'state': state, 'record': prior, 'result': result}):
                 continue
             at = included({'record': prior, 'result': result})
             if at >= record['chainEpochStart'] or prior.get('chainEpoch') == record['chainEpoch']:
@@ -232,7 +232,7 @@ def check_round(plan, view, s, rows):
         raise ValueError('timelock_schedule_not_future')
     prior = [p['reveal_round'] for p in view['pending']]
     prior += [r['result'].get('broadcast', {}).get('revealRound', 0)
-              for r in rows if r['state'] != 'not_submitted']
+              for r in rows if not definitely_not_included(r)]
     if prior and round_ <= max(prior):
         raise ValueError('timelock_reveal_window_collision')
     # Same-window rounds can differ by seconds. Require at least half an epoch's
@@ -295,7 +295,10 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
         if reason == 'unsupported_epoch_submission_window' or (submit and (reason or view['block'] < next_block)):
             next_window = s['LastEpochBlock'] + (5 if view['block'] < s['LastEpochBlock'] + 5
                                                 else view['params']['tempo'] + 5)
-            return {**common, 'state': 'blocked' if reason == 'unsupported_epoch_submission_window' else 'waiting',
+            missed = (reason == 'waiting_for_chain_epoch_window'
+                      and view['block'] > s['LastEpochBlock'] + min(90, view['params']['tempo'] // 3))
+            return {**common, 'state': 'blocked' if reason == 'unsupported_epoch_submission_window' or missed else 'waiting',
+                    'missedSubmissionWindow': missed,
                     'reason': reason or 'block_cadence', 'nextEligibleBlock': max(next_block, next_window)}
         if not submit:
             common['signingWindowOpen'] = reason is None and view['block'] >= next_block
@@ -315,7 +318,7 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
         common['assignmentHash'] = digest(selected)
         common['assignmentPolicy'] = selected['policy']
         if source == 'signed_epoch' and any(
-                r['state'] != 'not_submitted' and r['record'].get('accountingSource', 'signed_epoch') == 'signed_epoch'
+                not definitely_not_included(r) and r['record'].get('accountingSource', 'signed_epoch') == 'signed_epoch'
                 and r['record']['epoch'] == epoch for r in rows):
             return {**common, 'state': 'waiting', 'reason': 'assigned_report_already_submitted',
                     'note': 'Preserve the historical allocation; do not replay it or select a different report.'}
@@ -380,8 +383,30 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
                     raise ValueError('chain_changed_before_broadcast')
                 check_authorization(root / 'authorization.json', domain, config['validatorHotkey'], config['versionKey'])
                 broadcast_started = True
-                outcome = await client._substrate.submit_signed(signed, signer, wait_for_inclusion=True, wait_for_finalization=True)
+                outcome = await submit_and_confirm(client, signed, signer, db, run_id, record)
+                if outcome is None:
+                    db.execute("UPDATE weight_runs SET state='unknown' WHERE id=? AND state='submitting'", (run_id,))
+                    db.commit()
+                    return {**result, 'state': 'pending_confirmation', 'submittedTransaction': True,
+                            'runId': run_id, 'transactionHash': broadcast['hash'],
+                            'note': 'Broadcast once; awaiting exact finalized evidence. No automatic rebroadcast.'}
                 if not outcome.success or not outcome.block_hash or not re.fullmatch(r'\d+-\d+', outcome.extrinsic_id or ''):
+                    from .diagnostics import diagnostic
+                    detail = {'success': outcome.success is True,
+                              'errorType': type(getattr(outcome, 'error', None)).__name__}
+                    if isinstance(getattr(outcome, 'error', None), Exception):
+                        detail['diagnostic'] = diagnostic(outcome.error)
+                        from bittensor.result import ChainError, ErrorCode
+                        if isinstance(outcome.error, ChainError):
+                            if isinstance(outcome.error.code, ErrorCode):
+                                detail['chainCode'] = outcome.error.code.value
+                            from bittensor.result import ERRORS
+                            known = {getattr(value, 'name', None) for value in ERRORS.values()}
+                            if outcome.error.name in known and outcome.error.name is not None:
+                                detail['chainName'] = outcome.error.name
+                    db.execute('UPDATE weight_runs SET result=? WHERE id=?',
+                               (json.dumps({'broadcast': broadcast, 'submissionFailure': detail}), run_id))
+                    db.commit()
                     raise ValueError('submission not confirmed')
                 state = 'commit_finalized' if record['commitReveal'] else 'finalized'
                 db.execute('UPDATE weight_runs SET state=?,result=? WHERE id=?',
@@ -393,7 +418,13 @@ async def tick(root, config, submit, interval=100, missing='burn', grace=25):
                         'includedBlock': int(outcome.extrinsic_id.split('-')[0]),
                         'extrinsicId': outcome.extrinsic_id, 'revealAtMs': broadcast.get('revealAtMs'),
                         'note': 'One allocation per chain epoch. Finalized is not revealed, applied or paid.'}
-            except BaseException:
+            except BaseException as exc:
+                from .diagnostics import diagnostic
+                stored = db.execute('SELECT result FROM weight_runs WHERE id=?', (run_id,)).fetchone()
+                retained = json.loads(stored[0]) if stored and stored[0] else {}
+                retained['lastFailure'] = {'type': type(exc).__name__, 'diagnostic': diagnostic(exc)}
+                db.execute('UPDATE weight_runs SET result=? WHERE id=?',
+                           (json.dumps(retained), run_id))
                 db.execute('UPDATE weight_runs SET state=? WHERE id=?',
                            ('unknown' if broadcast_started else 'not_submitted', run_id))
                 db.commit()

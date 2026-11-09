@@ -1,3 +1,31 @@
+# EveryFrame Validator 0.8.5
+
+- Submit weights once and confirm the exact transaction hash through finalized
+  chain reads, without relying on a long-lived RPC subscription.
+- Recover an unconfirmed transaction after its full validity window has expired
+  and finalized-chain evidence proves it was never included. A proven-expired
+  attempt no longer consumes the current epoch's submission slot.
+- Keep ambiguous transactions blocked until reconciled. Preserve existing
+  journals, wallet configuration, authorizations, signed reports and reward rules.
+  Older uncertain entries without a recorded expiry bound remain blocked until
+  inclusion or non-submission can be established safely.
+- Mark missed signing windows as unhealthy and retain structured chain-error
+  diagnostics for operators.
+- Support bounded historical reads on RPC services with explicit range limits,
+  configured authentication for accounting finalization, and protected systemd
+  credentials. Retry transient finalizer failures with fresh connections.
+
+Upgrade in your existing virtual environment:
+
+```bash
+python -m pip install --upgrade https://github.com/everyframe-studio/everyframe-validator/releases/download/v0.8.5/everyframe_validator-0.8.5-py3-none-any.whl
+```
+
+Restart your existing validator service with the same state directory and wallet.
+Do not reinitialize or clear its journal. Docker deployments can use
+`ghcr.io/everyframe-studio/everyframe-validator:v0.8.5`; configured automatic
+updaters can discover the release normally and still defer uncertain submissions.
+
 # EveryFrame Validator 0.8.4
 
 - Bundle the official mainnet treasury wallet address so validators only need to update and restart as usual.

@@ -15,7 +15,7 @@ from .core.reward_policy import digest, seal_epoch
 from .core.validator import epoch_weight_plan
 from .core.burn_selection import resolve as resolve_burn
 from .core import contest_pool as contest
-from .core.submission import prepare, recover
+from .core.submission import prepare, recover, definitely_not_included
 from .feed import fetch, verify, FeedUnavailable
 from .state import read_private, atomic_json, journal_rows
 
@@ -92,7 +92,7 @@ async def snapshot(client, domain, config):
 def due_at(rows, view, interval):
     last = view['lastUpdate']
     for row in rows:
-        if row['state'] == 'not_submitted':
+        if definitely_not_included(row):
             continue
         result = row['result']
         included = result.get('extrinsic_id')

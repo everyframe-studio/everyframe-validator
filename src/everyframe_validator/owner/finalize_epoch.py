@@ -9,12 +9,13 @@ import asyncio
 from fractions import Fraction
 import json
 import os
+import sys
 from pathlib import Path
 import time
 from urllib.request import Request, urlopen
 
 from .reward_policy import POLICY, MINER_SHARE_TEXT, MINER_SHARE_POLICY, digest, recognition_snapshot, load_epoch, positive, seal_epoch
-from ..core.chain_scope import scope, add_network, check_database, read_network
+from ..core.chain_scope import scope, add_network, check_database, read_network, rpc_options
 from ..core.emission_policy import CHAIN_SHARE_POLICY, collect_evidence, summarize
 from .reward_recovery import add_recoveries
 
@@ -133,7 +134,11 @@ async def main(args):
         check_database(args.database, domain)
         if Path(args.epochs).exists():
             check_database(args.epochs, domain)
-    async with bt.Client(network=read_network(domain), fallback_endpoints=[], archive_endpoints=[], retry_forever=False) as client:
+    def stage(name):
+        print(json.dumps({'event': 'accounting_finalization', 'stage': name}), file=sys.stderr, flush=True)
+    stage('connect_chain')
+    async with bt.Client(network=read_network(domain), **rpc_options(domain),
+                         fallback_endpoints=[], archive_endpoints=[], retry_forever=False) as client:
         if Path(args.epochs).exists():
             if await client._substrate.block_hash(0) != domain['genesis']:
                 raise ValueError('unexpected chain genesis')
@@ -155,8 +160,10 @@ async def main(args):
         # Deliberate rollout gate: readers must be upgraded before the owner
         # emits a format that v0.5.0 correctly rejects as unknown.
         if getattr(args, 'chain_emission_policy', False):
+            stage('collect_chain_emissions')
             artifact = await collect_chain(client, args.netuid, domain['network'])
         else:
+            stage('collect_chain_emissions')
             artifact = await collect_chain(client, args.netuid, domain['network'], chain_emissions=False)
         if Path(args.epochs).exists():
             # Idempotent tick: never rebuild a previously published epoch using
@@ -171,6 +178,7 @@ async def main(args):
                     raise ValueError('sealed epoch chain changed')
                 print(json.dumps({'state': 'already_finalized', 'epoch': artifact['epoch'], 'hash': digest(previous)}))
                 return
+        stage('price_oracle')
         price = await asyncio.to_thread(fetch_price, artifact['endMs'])
         artifact['priceSource'] = price
         artifact['alphaPriceUsd'] = str(positive(artifact.pop('alphaTao')) * positive(price['taoUsd']))
@@ -182,6 +190,7 @@ async def main(args):
         eligible = set()
         bindings_path = getattr(args, 'recovery_bindings', None)
         if bindings_path:
+            stage('resolve_recovery_recipients')
             import sqlite3
             from everyframe_validator.feed import strict_json
             bindings = strict_json(Path(bindings_path).read_bytes())
@@ -197,15 +206,31 @@ async def main(args):
         artifact = add_recoveries(artifact, args.epochs, eligible_miners=eligible)
         # Publish only the newest closed epoch. Its work value includes eligible
         # approvals not recognized in an earlier seal, not a replay of old weights.
+        stage('verify_finalized_head')
         latest_hash = await client._substrate.raw.get_chain_finalised_head()
         latest = await client._substrate.raw.get_block_number(latest_hash)
         if latest // artifact['blocksPerEpoch'] - 1 != artifact['epoch']:
             raise ValueError('epoch advanced while finalizing; retry newest epoch')
+    stage('seal_epoch')
     hashed = seal_epoch(args.epochs, artifact)
     print(json.dumps({'state': 'finalized', 'epoch': artifact['epoch'], 'hash': hashed,
                       'miners': len(artifact['window']['scores']),
                       'recoveryAssignedMicrousd': sum(c['amountMicrousd'] for c in artifact['window']['recoveries']),
                       'paymentConfirmed': False, 'chainTransactions': 0}))
+
+
+async def finalize_with_retry(args, *, attempts=3, attempt_timeout=45):
+    """Retry transient read failures with a fresh client; seals stay immutable."""
+    from bittensor.result import RpcConnectionError
+    for attempt in range(attempts):
+        try:
+            return await asyncio.wait_for(main(args), timeout=attempt_timeout)
+        except (TimeoutError, RpcConnectionError):
+            if attempt + 1 == attempts:
+                raise
+            print(json.dumps({'event': 'accounting_retry', 'attempt': attempt + 1}),
+                  file=sys.stderr, flush=True)
+            await asyncio.sleep(min(2 ** attempt, 4))
 
 
 def cli():
@@ -220,7 +245,7 @@ def cli():
     args = parser.parse_args()
     if not 0 < args.netuid < 4096:
         parser.error('invalid netuid')
-    asyncio.run(asyncio.wait_for(main(args), timeout=180))
+    asyncio.run(asyncio.wait_for(finalize_with_retry(args), timeout=180))
 
 
 if __name__ == '__main__':

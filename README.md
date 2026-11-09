@@ -7,6 +7,13 @@ provider API keys, GPU, Phala account, or miner TEE is required.
 
 ## Release status
 
+Version **0.8.5** improves RPC reliability and recovery from unconfirmed weight
+submissions. It confirms each broadcast by its exact finalized transaction hash,
+and permits a new attempt only after proven expiry and the usual epoch checks.
+Existing state and reward calculations remain unchanged. See the
+[release notes](RELEASE-NOTES.md) for the upgrade command; restart your existing
+service without reinitializing its state.
+
 Version **0.8.4** bundles the official mainnet treasury wallet address. Existing validators only need their usual software update and restart: no treasury acceptance command or new configuration is required. Existing wallet, journal and signing authorization remain intact. See [TREASURY-WALLET.md](TREASURY-WALLET.md).
 
 Version **0.8.0** selects a treasury wallet UID from all registered hotkeys under one non-owner coldkey. Selection is deterministic from the signed report and finalized snapshot. It also includes the opt-in Docker Compose updater. Treasury wallet funding stays inactive until a verified non-owner recipient and future activation epoch are configured. See [TREASURY-WALLET.md](TREASURY-WALLET.md) and [AUTO-UPDATE.md](AUTO-UPDATE.md). The updater preserves local signing authorization; the official treasury address is supplied by the installed release.

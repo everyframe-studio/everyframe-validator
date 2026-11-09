@@ -152,9 +152,31 @@ async def collect_history(client, netuid, start, end):
         unsupported = (error.get('code') == -32601 or
                        (error.get('code') == 4003 and
                         error.get('message') == 'RPC call is unsafe to be called externally'))
-        if not unsupported:
+        limits = error.get('data', {})
+        maximum = limits.get('max_blocks') if isinstance(limits, dict) else None
+        range_limited = (error.get('code') == -32602 and type(maximum) is int
+                         and 2 <= maximum < end - start + 1
+                         and limits.get('max_step') == maximum - 1
+                         and limits.get('requested_blocks') == end - start + 1)
+        if unsupported:
+            groups, known = await collect_points(client, keys, start, end, first_hash)
+        elif range_limited:
+            # Every page includes its initial storage state. Disjoint page
+            # boundaries preserve changes and the parent-vector convention.
+            # Only a structured range-limit response permits this retry;
+            # transport errors, pruned state and rate limits still fail closed.
+            groups = []
+            for lower in range(start - 1, end, maximum):
+                upper = min(end - 1, lower + maximum - 1)
+                lower_hash = first_hash if lower == start - 1 else await client._substrate.block_hash(lower)
+                upper_hash = last_hash if upper == end - 1 else await client._substrate.block_hash(upper)
+                page = await raw.rpc_request('state_queryStorage', [list(keys), lower_hash, upper_hash])
+                if not isinstance(page, list) or not 1 <= len(page) <= upper - lower + 1:
+                    raise ValueError('invalid_emission_storage_history_page')
+                known.update({lower_hash: lower, upper_hash: upper})
+                groups.extend(page)
+        else:
             raise
-        groups, known = await collect_points(client, keys, start, end, first_hash)
     if not isinstance(groups, list) or not 1 <= len(groups) <= end - start + 1:
         raise ValueError('invalid_emission_storage_history')
     history, previous = {}, start - 2
