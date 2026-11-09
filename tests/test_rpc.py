@@ -1,5 +1,7 @@
 import asyncio
 import os
+import stat
+from types import SimpleNamespace
 
 import pytest
 
@@ -93,3 +95,16 @@ def test_conflicting_or_empty_credentials(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match='invalid_rpc_credentials'): rpc.api_key()
     monkeypatch.setenv('EVERYFRAME_RPC_API_KEY', 'fixture-key')
     with pytest.raises(ValueError, match='conflicting_rpc_credentials'): rpc.api_key()
+
+
+def test_systemd_readonly_credentials_are_narrowly_scoped(monkeypatch):
+    monkeypatch.setenv('CREDENTIALS_DIRECTORY', '/run/credentials/validator.service')
+    info = SimpleNamespace(st_uid=0, st_mode=stat.S_IFREG | 0o440)
+    assert rpc.systemd_credential('/run/credentials/validator.service/rpc-key', info)
+    assert not rpc.systemd_credential('/tmp/rpc-key', info)
+    assert not rpc.systemd_credential('/run/credentials/other.service/rpc-key', info)
+    info.st_mode = stat.S_IFREG | 0o660
+    assert not rpc.systemd_credential('/run/credentials/validator.service/rpc-key', info)
+    monkeypatch.setenv('CREDENTIALS_DIRECTORY', '/tmp/credentials')
+    info.st_mode = stat.S_IFREG | 0o440
+    assert not rpc.systemd_credential('/tmp/credentials/rpc-key', info)

@@ -18,6 +18,7 @@ from conftest import hot
 
 @pytest.fixture
 def scheduled_case(profile, chain, monkeypatch, payload, signing):
+    import bittensor as bt
     root, config = profile
     authorize(root, config, maximum=20)
     view = dict(block=4000, blockHash='0x'+'a'*64, params=chain.params,
@@ -28,6 +29,12 @@ def scheduled_case(profile, chain, monkeypatch, payload, signing):
              epochStartedAtMs=1_700_000_000_000 - 25 * 12000,
              previousChainEpochStart=3615, chainEpochStartHash='0x'+'a'*64)
     monkeypatch.setattr(cadence, 'snapshot', AsyncMock(side_effect=lambda *a: dict(view)))
+    original_client = bt.Client
+    class CurrentClient(original_client):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self._substrate.raw.get_block_number = AsyncMock(side_effect=lambda _: view['block'])
+    monkeypatch.setattr(bt, 'Client', CurrentClient)
     monkeypatch.setattr(scheduled, 'schedule', AsyncMock(side_effect=lambda *a: dict(s)))
     monkeypatch.setattr(scheduled, 'fetch', lambda _, e: report_for(payload,e,signing,empty=True))
     def dispatch(base, epoch):
@@ -238,9 +245,35 @@ def test_early_window_bounds(scheduled_case, chain, offset):
 
 def test_waiting_does_not_adopt_a_local_accounting_backlog(scheduled_case, chain):
     scheduled_case[2]['block'] = 4100
-    assert run(scheduled_case)['state'] == 'waiting'
+    assert run(scheduled_case)['state'] == 'blocked'
     advance(scheduled_case, chain)
     assert run(scheduled_case)['epoch'] == 11
+
+
+def test_missed_window_is_not_healthy_waiting(scheduled_case, chain):
+    from everyframe_validator.healthcheck import ready
+    scheduled_case[2]['block'] = scheduled_case[3]['LastEpochBlock'] + 91
+    result = run(scheduled_case)
+    assert result['state'] == 'blocked' and result['missedSubmissionWindow'] is True
+    assert not ready({**result, 'atMs': 100000}, now=100, started_at=0)
+    chain.execute.assert_not_called()
+
+
+def test_proven_expired_attempt_does_not_consume_current_assignment(scheduled_case, chain):
+    from test_submission_confirmation import expired_row
+    root, _, view, schedule = scheduled_case
+    old = expired_row()
+    old['record'].update(chainEpoch=20, chainEpochStart=3975, epoch=10,
+                         accountingSource='signed_epoch', authorizationId='old')
+    with sqlite3.connect(root / 'journal.db') as db:
+        db.execute('INSERT INTO weight_runs VALUES(?,?,?,?)',
+                   ('expired', 'expired', json.dumps(old['record']), json.dumps(old['result'])))
+    view['block'] = 4050
+    assert scheduled.gate(view, schedule, journal_rows(root)) is None
+    assert cadence.due_at(journal_rows(root), view, 100) == 100
+    assert run(scheduled_case)['state'] == 'commit_finalized'
+    assert chain.execute.await_count == 1
+    assert journal_rows(root)[0]['state'] == 'expired'
     assert not (scheduled_case[0]/'reward-schedule.json').exists()
 
 

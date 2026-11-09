@@ -15,12 +15,19 @@ from conftest import hot
 
 @pytest.fixture
 def paced(profile, chain, monkeypatch):
+    import bittensor as bt
     root, config = profile
     authorize(root, config, maximum=20)
     view = dict(block=4000, blockHash='0x'+'a'*64, params=chain.params,
                 neurons=[vars(n) for n in chain.neurons], owner=hot(10), ownerHotkey=hot(0),
                 lastUpdate=0, pending=[], epoch=10)
     monkeypatch.setattr(cadence, 'snapshot', AsyncMock(side_effect=lambda *args: dict(view)))
+    original_client = bt.Client
+    class CurrentClient(original_client):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self._substrate.raw.get_block_number = AsyncMock(side_effect=lambda _: view['block'])
+    monkeypatch.setattr(bt, 'Client', CurrentClient)
     monkeypatch.setattr(cadence, 'fetch', lambda *args: (_ for _ in ()).throw(FeedUnavailable()))
     return root, config, view
 
